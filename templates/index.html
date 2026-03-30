@@ -10,7 +10,10 @@
         button:hover { background: #0056b3; }
         .malicious-btn { background: #dc3545; }
         .malicious-btn:hover { background: #a71d2a; }
-        input, select { padding: 10px; width: 90%; margin-bottom: 10px; }
+        .generate-btn { background: #6c757d; white-space: nowrap; }
+        .generate-btn:hover { background: #5a6268; }
+        input, select { padding: 10px; width: 100%; box-sizing: border-box; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
         pre { background: #eee; padding: 10px; border-radius: 4px; overflow-x: auto; }
     </style>
 </head>
@@ -21,13 +24,19 @@
     <div class="container">
         <div class="card">
             <h2>Voter Interface</h2>
-            <input type="text" id="voter_id" placeholder="Enter Voter ID (e.g., V-123)">
-            <select id="candidate">
+            
+            <div class="input-group">
+                <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
+                <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate UUID</button>
+            </div>
+            
+            <select id="candidate" style="margin-bottom: 15px;">
                 <option value="Pablo">Pablo</option>
                 <option value="Ramon">Ramon</option>
                 <option value="Charlie">Charlie</option>
             </select>
             <br>
+            
             <button id="submit-btn" onclick="castVote()">Submit Secure Vote</button>
             <div id="receipt" style="margin-top: 15px; color: green; font-weight: bold;"></div>
         </div>
@@ -44,6 +53,15 @@
 
     <script>
         // ==========================================
+        // ID GENERATOR (Method 1: Cryptographic UUID)
+        // ==========================================
+        function generateVoterId() {
+            // Uses the browser's built-in crypto engine to generate a 36-character UUID
+            const secureId = crypto.randomUUID();
+            document.getElementById('voter_id').value = secureId;
+        }
+
+        // ==========================================
         // VOTER UI LOGIC
         // ==========================================
         async function castVote() {
@@ -57,7 +75,7 @@
 
             // Basic validation
             if (!voter_id) {
-                receiptDiv.innerHTML = '⚠️ Please enter a Voter ID.';
+                receiptDiv.innerHTML = '⚠️ Please enter or generate a Voter ID.';
                 receiptDiv.style.color = 'orange';
                 return;
             }
@@ -81,7 +99,7 @@
                     receiptDiv.innerHTML = 
                         `✅ <strong>Vote Committed!</strong><br>
                         <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
-                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
+                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px; display: inline-block; margin-top: 5px; word-break: break-all;">Hash: ${data.receipt}</span>`;
                     receiptDiv.style.color = 'green';
                     
                     // Clear the input for the next voter
@@ -97,7 +115,6 @@
                 // 4. Reset the Button
                 submitBtn.disabled = false;
                 submitBtn.innerText = 'Submit Secure Vote';
-                // Force an immediate dashboard update
                 fetchStatus(); 
             }
         }
@@ -111,9 +128,8 @@
                 const data = await res.json();
                 
                 const statusBox = document.getElementById('status-box');
-                statusBox.innerHTML = ''; // Clear old data
+                statusBox.innerHTML = ''; 
 
-                // Format the JSON data into a nice readable list
                 data.forEach(node => {
                     const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
                     const nodeColor = node.malicious ? '#dc3545' : '#28a745';
@@ -137,9 +153,8 @@
             hackBtn.disabled = true;
 
             await fetch('/api/toggle_hack', { method: 'POST' });
-            await fetchStatus(); // Update immediately
+            await fetchStatus(); 
             
-            // Reset button visually
             hackBtn.innerText = "Toggle Hack on University Node";
             hackBtn.disabled = false;
         }
@@ -147,10 +162,7 @@
         // ==========================================
         // INITIALIZATION
         // ==========================================
-        // Load status immediately on boot
         fetchStatus();
-
-        // Set up LIVE POLLING: Auto-refresh the dashboard every 2 seconds
         setInterval(fetchStatus, 2000);
     </script>
 </body>
