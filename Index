@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Distributed Voting System</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; padding: 20px; }
+        .container { display: flex; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; }
+        button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .malicious-btn { background: #dc3545; }
+        .malicious-btn:hover { background: #a71d2a; }
+        input, select { padding: 10px; width: 90%; margin-bottom: 10px; }
+        pre { background: #eee; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+    <h1>🗳️ Secure Voting Portal (PBFT + Paxos)</h1>
+    
+    <div class="container">
+        <div class="card">
+            <h2>Voter Interface</h2>
+            <input type="text" id="voter_id" placeholder="Enter Voter ID (e.g., V-123)">
+            <select id="candidate">
+                <option value="Alice">Alice</option>
+                <option value="Bob">Bob</option>
+                <option value="Charlie">Charlie</option>
+            </select>
+            <br>
+            <button onclick="castVote()">Submit Secure Vote</button>
+            <div id="receipt" style="margin-top: 15px; color: green; font-weight: bold;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Auditor Dashboard</h2>
+            <button class="malicious-btn" onclick="toggleHack()">Toggle Hack on University Node</button>
+            <button onclick="fetchStatus()" style="background: #28a745;">Refresh Network Status</button>
+            
+            <h3>PBFT Node Status:</h3>
+            <pre id="status-box">Click refresh to load...</pre>
+        </div>
+    </div>
+
+    <script>
+        async function castVote() {
+            const voter_id = document.getElementById('voter_id').value;
+            const candidate = document.getElementById('candidate').value;
+            
+            const res = await fetch('/api/vote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voter_id, candidate })
+            });
+            const data = await res.json();
+            
+            if(data.status === 'success') {
+                document.getElementById('receipt').innerHTML = 
+                    `✅ Vote Committed!<br>PBFT Approvals: ${data.approvals}/${data.total_nodes}<br>Receipt Hash: ${data.receipt}`;
+                fetchStatus(); // Update dashboard
+            } else {
+                document.getElementById('receipt').innerHTML = `❌ Error: ${data.message} (Approvals: ${data.approvals}/${data.total_nodes})`;
+                document.getElementById('receipt').style.color = 'red';
+            }
+        }
+
+        async function fetchStatus() {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            document.getElementById('status-box').textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function toggleHack() {
+            await fetch('/api/toggle_hack', { method: 'POST' });
+            fetchStatus();
+        }
+
+        // Load status on boot
+        fetchStatus();
+    </script>
+</body>
+</html>
