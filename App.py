@@ -65,7 +65,7 @@ network = PBFTNetwork(nodes)
 # ==========================================
 @app.route('/')
 def index():
-    return render_template('UI.html')
+    return render_template('index.html')
 
 @app.route('/api/vote', methods=['POST'])
 def cast_vote():
