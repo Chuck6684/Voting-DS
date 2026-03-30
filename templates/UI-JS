@@ -1,0 +1,110 @@
+// ==========================================
+// VOTER UI LOGIC
+// ==========================================
+async function castVote() {
+    const voterIdInput = document.getElementById('voter_id');
+    const candidateSelect = document.getElementById('candidate');
+    const submitBtn = document.getElementById('submit-btn');
+    const receiptDiv = document.getElementById('receipt');
+
+    const voter_id = voterIdInput.value.trim();
+    const candidate = candidateSelect.value;
+
+    // Basic validation
+    if (!voter_id) {
+        receiptDiv.innerHTML = '⚠️ Please enter a Voter ID.';
+        receiptDiv.style.color = 'orange';
+        return;
+    }
+
+    // 1. Set Loading State
+    submitBtn.disabled = true;
+    submitBtn.innerText = '⚙️ Running PBFT Consensus...';
+    receiptDiv.innerHTML = '';
+
+    try {
+        // 2. Send the Request
+        const res = await fetch('/api/vote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ voter_id, candidate })
+        });
+        const data = await res.json();
+        
+        // 3. Handle the Response
+        if(data.status === 'success') {
+            receiptDiv.innerHTML = 
+                `✅ <strong>Vote Committed!</strong><br>
+                <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
+                <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
+            receiptDiv.style.color = 'green';
+            
+            // Clear the input for the next voter
+            voterIdInput.value = '';
+        } else {
+            receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Only ${data.approvals}/${data.total_nodes} nodes approved.`;
+            receiptDiv.style.color = 'red';
+        }
+    } catch (error) {
+        receiptDiv.innerHTML = `❌ Network Error. Could not reach the API.`;
+        receiptDiv.style.color = 'red';
+    } finally {
+        // 4. Reset the Button
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Submit Secure Vote';
+        // Force an immediate dashboard update
+        fetchStatus(); 
+    }
+}
+
+// ==========================================
+// AUDITOR DASHBOARD LOGIC
+// ==========================================
+async function fetchStatus() {
+    try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        const statusBox = document.getElementById('status-box');
+        statusBox.innerHTML = ''; // Clear old data
+
+        // Format the JSON data into a nice readable list
+        data.forEach(node => {
+            const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
+            const nodeColor = node.malicious ? '#dc3545' : '#28a745';
+            
+            statusBox.innerHTML += `
+                <div style="padding: 5px 0; border-bottom: 1px solid #ddd;">
+                    <strong>${node.name}</strong>: 
+                    <span style="color: ${nodeColor}; font-weight: bold;">${isMalicious}</span> 
+                    | Local Paxos Ledger: ${node.ledger_count} votes
+                </div>
+            `;
+        });
+    } catch (error) {
+        console.error("Could not fetch network status", error);
+    }
+}
+
+async function toggleHack() {
+    const hackBtn = document.getElementById('hack-btn');
+    hackBtn.innerText = "Processing Hack...";
+    hackBtn.disabled = true;
+
+    await fetch('/api/toggle_hack', { method: 'POST' });
+    await fetchStatus(); // Update immediately
+    
+    // Reset button visually
+    hackBtn.innerText = "Toggle Hack on University Node";
+    hackBtn.disabled = false;
+}
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
+// Load status immediately on boot
+fetchStatus();
+
+// Set up LIVE POLLING: Auto-refresh the dashboard every 2 seconds
+// This makes the UI feel like a real, live monitoring system!
+setInterval(fetchStatus, 2000);
