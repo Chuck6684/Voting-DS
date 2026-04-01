@@ -8,62 +8,52 @@
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; }
         button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
-        .malicious-btn { background: #dc3545; }
-        .malicious-btn:hover { background: #a71d2a; }
         .generate-btn { background: #6c757d; white-space: nowrap; }
         .generate-btn:hover { background: #5a6268; }
+        .mini-hack-btn { background: #dc3545; padding: 5px 10px; font-size: 0.8em; margin-left: 10px; }
+        .mini-hack-btn:hover { background: #a71d2a; }
         input, select { padding: 10px; width: 100%; box-sizing: border-box; }
         .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
-        pre { background: #eee; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        .node-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #ddd; }
+        #status-box { background: #eee; padding: 15px; border-radius: 4px; margin-top: 15px; }
     </style>
 </head>
 <body>
 
-    <h1>🗳️ Secure Voting Portal (PBFT + Paxos)</h1>
+    <h1>🗳️ Secure Voting Portal (PBFT+Paxos Hybrid Protocol)</h1>
     
     <div class="container">
         <div class="card">
             <h2>Voter Interface</h2>
-            
             <div class="input-group">
                 <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
-                <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate UUID</button>
+                <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate</button>
             </div>
-            
             <select id="candidate" style="margin-bottom: 15px;">
                 <option value="Pablo">Pablo</option>
                 <option value="Ramon">Ramon</option>
                 <option value="Charlie">Charlie</option>
             </select>
             <br>
-            
             <button id="submit-btn" onclick="castVote()">Submit Secure Vote</button>
-            <div id="receipt" style="margin-top: 15px; color: green; font-weight: bold;"></div>
+            <div id="receipt" style="margin-top: 15px; font-size: 1.1em;"></div>
         </div>
 
         <div class="card">
-            <h2>Auditor Dashboard</h2>
-            <button id="hack-btn" class="malicious-btn" onclick="toggleHack()">Toggle Hack on University Node</button>
-            <button onclick="fetchStatus()" style="background: #28a745;">Refresh Network Status</button>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0;">Auditor Dashboard</h2>
+                <button onclick="addNode()" style="background: #17a2b8;">➕ Add Network Node</button>
+            </div>
             
-            <h3>PBFT Node Status:</h3>
-            <pre id="status-box">Click refresh to load...</pre>
+            <div id="status-box">Loading network data...</div>
         </div>
     </div>
 
     <script>
-        // ==========================================
-        // ID GENERATOR (Method 1: Cryptographic UUID)
-        // ==========================================
         function generateVoterId() {
-            // Uses the browser's built-in crypto engine to generate a 36-character UUID
-            const secureId = crypto.randomUUID();
-            document.getElementById('voter_id').value = secureId;
+            document.getElementById('voter_id').value = crypto.randomUUID();
         }
 
-        // ==========================================
-        // VOTER UI LOGIC
-        // ==========================================
         async function castVote() {
             const voterIdInput = document.getElementById('voter_id');
             const candidateSelect = document.getElementById('candidate');
@@ -73,20 +63,13 @@
             const voter_id = voterIdInput.value.trim();
             const candidate = candidateSelect.value;
 
-            // Basic validation
-            if (!voter_id) {
-                receiptDiv.innerHTML = '⚠️ Please enter or generate a Voter ID.';
-                receiptDiv.style.color = 'orange';
-                return;
-            }
+            if (!voter_id) return;
 
-            // 1. Set Loading State
             submitBtn.disabled = true;
             submitBtn.innerText = '⚙️ Running PBFT Consensus...';
             receiptDiv.innerHTML = '';
 
             try {
-                // 2. Send the Request
                 const res = await fetch('/api/vote', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -94,74 +77,64 @@
                 });
                 const data = await res.json();
                 
-                // 3. Handle the Response
                 if(data.status === 'success') {
-                    receiptDiv.innerHTML = 
-                        `✅ <strong>Vote Committed!</strong><br>
-                        <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
-                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px; display: inline-block; margin-top: 5px; word-break: break-all;">Hash: ${data.receipt}</span>`;
-                    receiptDiv.style.color = 'green';
-                    
-                    // Clear the input for the next voter
+                    receiptDiv.innerHTML = `✅ <span style="color: green; font-weight: bold;">Vote Committed!</span><br>
+                        <span style="font-size: 0.9em; color: #555;">Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})</span><br>
+                        <span style="font-family: monospace; font-size: 0.8em; display:block; margin-top:5px;">Hash: ${data.receipt}</span>`;
                     voterIdInput.value = '';
                 } else {
-                    receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Only ${data.approvals}/${data.total_nodes} nodes approved.`;
-                    receiptDiv.style.color = 'red';
+                    receiptDiv.innerHTML = `❌ <span style="color: red; font-weight: bold;">Consensus Failed!</span><br>
+                        <span style="font-size: 0.9em; color: #dc3545;">Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})</span><br>
+                        <span style="font-size: 0.8em;">Network is compromised. Vote discarded.</span>`;
                 }
             } catch (error) {
-                receiptDiv.innerHTML = `❌ Network Error. Could not reach the API.`;
-                receiptDiv.style.color = 'red';
+                receiptDiv.innerHTML = `❌ Network Error.`;
             } finally {
-                // 4. Reset the Button
                 submitBtn.disabled = false;
                 submitBtn.innerText = 'Submit Secure Vote';
                 fetchStatus(); 
             }
         }
 
-        // ==========================================
-        // AUDITOR DASHBOARD LOGIC
-        // ==========================================
+        async function addNode() {
+            await fetch('/api/add_node', { method: 'POST' });
+            fetchStatus();
+        }
+
+        async function toggleNodeHack(nodeIndex) {
+            await fetch('/api/toggle_hack', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node_index: nodeIndex })
+            });
+            fetchStatus();
+        }
+
         async function fetchStatus() {
-            try {
-                const res = await fetch('/api/status');
-                const data = await res.json();
-                
-                const statusBox = document.getElementById('status-box');
-                statusBox.innerHTML = ''; 
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            const statusBox = document.getElementById('status-box');
+            statusBox.innerHTML = ''; 
 
-                data.forEach(node => {
-                    const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
-                    const nodeColor = node.malicious ? '#dc3545' : '#28a745';
-                    
-                    statusBox.innerHTML += `
-                        <div style="padding: 5px 0; border-bottom: 1px solid #ddd;">
-                            <strong>${node.name}</strong>: 
-                            <span style="color: ${nodeColor}; font-weight: bold;">${isMalicious}</span> 
-                            | Local Paxos Ledger: ${node.ledger_count} votes
+            data.forEach(node => {
+                const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
+                const nodeColor = node.malicious ? '#dc3545' : '#28a745';
+                const btnText = node.malicious ? 'Restore Node' : 'Hack Node';
+                const btnStyle = node.malicious ? 'background: #28a745;' : '';
+
+                statusBox.innerHTML += `
+                    <div class="node-row">
+                        <div>
+                            <strong>${node.name}</strong><br>
+                            <span style="color: ${nodeColor}; font-weight: bold; font-size: 0.9em;">${isMalicious}</span> 
+                            <span style="font-size: 0.9em; color: #555;">| Ledger: ${node.ledger_count} votes</span>
                         </div>
-                    `;
-                });
-            } catch (error) {
-                console.error("Could not fetch network status", error);
-            }
+                        <button class="mini-hack-btn" style="${btnStyle}" onclick="toggleNodeHack(${node.id})">${btnText}</button>
+                    </div>
+                `;
+            });
         }
 
-        async function toggleHack() {
-            const hackBtn = document.getElementById('hack-btn');
-            hackBtn.innerText = "Processing Hack...";
-            hackBtn.disabled = true;
-
-            await fetch('/api/toggle_hack', { method: 'POST' });
-            await fetchStatus(); 
-            
-            hackBtn.innerText = "Toggle Hack on University Node";
-            hackBtn.disabled = false;
-        }
-
-        // ==========================================
-        // INITIALIZATION
-        // ==========================================
         fetchStatus();
         setInterval(fetchStatus, 2000);
     </script>

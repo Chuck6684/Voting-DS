@@ -6,19 +6,61 @@ import time
 app = Flask(__name__)
 
 # ==========================================
-# 1. DISTRIBUTED SYSTEM LOGIC
+# 1. PAXOS LOGIC (Local Organization Consensus)
 # ==========================================
+class InternalPaxosServer:
+    """Represents a single database server inside an organization."""
+    def __init__(self, server_id):
+        self.server_id = server_id
+        self.highest_proposal = 0
+        self.ledger = []
+
+    def prepare(self, proposal_id):
+        if proposal_id > self.highest_proposal:
+            self.highest_proposal = proposal_id
+            return True
+        return False
+
+    def accept(self, proposal_id, data):
+        if proposal_id >= self.highest_proposal:
+            self.highest_proposal = proposal_id
+            self.ledger.append(data)
+            return True
+        return False
+
 class PaxosCluster:
-    def __init__(self, org_name):
+    """The local network for an organization, running Paxos across multiple servers."""
+    def __init__(self, org_name, num_internal_servers=3):
         self.org_name = org_name
-        self.local_ledger = []
+        # Each organization has 3 internal servers to prevent local data loss
+        self.servers = [InternalPaxosServer(i) for i in range(num_internal_servers)]
+        self.proposal_counter = 0
 
     def replicate(self, vote_data):
-        # Simulating Paxos consensus inside a single organization
-        time.sleep(0.1) 
-        self.local_ledger.append(vote_data)
-        return True
+        self.proposal_counter += 1
+        proposal_id = self.proposal_counter
+        
+        # Phase 1: PREPARE (Ask internal servers if they are ready)
+        promises = sum(1 for s in self.servers if s.prepare(proposal_id))
+        majority = (len(self.servers) // 2) + 1
+        
+        # If a majority of internal servers promise, proceed to Accept
+        if promises >= majority:
+            # Phase 2: ACCEPT (Tell internal servers to permanently save the vote)
+            accepts = sum(1 for s in self.servers if s.accept(proposal_id, vote_data))
+            if accepts >= majority:
+                return True
+        return False
 
+    @property
+    def local_ledger(self):
+        # For the dashboard, we just read the ledger from the first internal server
+        return self.servers[0].ledger
+
+
+# ==========================================
+# 2. PBFT LOGIC (Global Network Consensus)
+# ==========================================
 class PBFTNode:
     def __init__(self, name):
         self.name = name
@@ -27,12 +69,12 @@ class PBFTNode:
 
     def validate_vote(self, vote):
         if self.is_malicious:
-            return False # Simulating a hacked node rejecting a valid vote
+            return False 
         return True
 
 class PBFTNetwork:
-    def __init__(self, nodes):
-        self.nodes = nodes
+    def __init__(self, nodes_list):
+        self.nodes = nodes_list
 
     def run_consensus(self, vote):
         approvals = 0
@@ -44,24 +86,25 @@ class PBFTNetwork:
         required_majority = (2 * len(self.nodes) // 3) + 1
         
         if approvals >= required_majority:
-            # Tell honest nodes to save via local Paxos
             for node in self.nodes:
                 if not node.is_malicious:
+                    # Trigger the Paxos algorithm to save the vote locally
                     node.paxos_backend.replicate(vote)
-            return True, approvals
-        return False, approvals
+            return True, approvals, required_majority
+        return False, approvals, required_majority
 
-# Initialize the Network for the Project
-nodes = [
+
+# Initialize with 4 standard nodes
+global_nodes = [
     PBFTNode("Electoral_Commission"),
     PBFTNode("Independent_Auditor"),
     PBFTNode("NGO_Watchdog"),
     PBFTNode("University_Node")
 ]
-network = PBFTNetwork(nodes)
+network = PBFTNetwork(global_nodes)
 
 # ==========================================
-# 2. FLASK WEB ROUTES (The API & UI Serving)
+# 3. FLASK WEB ROUTES 
 # ==========================================
 @app.route('/')
 def index():
@@ -73,7 +116,6 @@ def cast_vote():
     voter_id = data.get('voter_id')
     candidate = data.get('candidate')
 
-    # Create vote object and hash
     vote_id = str(uuid.uuid4())
     timestamp = time.time()
     record = f"{vote_id}{voter_id}{candidate}{timestamp}"
@@ -86,25 +128,34 @@ def cast_vote():
         "timestamp": timestamp
     }
 
-    # Run Consensus
-    success, approvals = network.run_consensus(vote_data)
+    success, approvals, required = network.run_consensus(vote_data)
 
     if success:
-        return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "total_nodes": len(nodes)})
+        return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
-        return jsonify({"status": "error", "message": "PBFT Consensus Failed!", "approvals": approvals, "total_nodes": len(nodes)}), 400
+        return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    # Return the state of the network for the auditor dashboard
-    node_status = [{"name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.local_ledger)} for n in nodes]
+    node_status = [{"id": i, "name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.local_ledger)} for i, n in enumerate(global_nodes)]
     return jsonify(node_status)
 
 @app.route('/api/toggle_hack', methods=['POST'])
 def toggle_hack():
-    # Flips the University Node to malicious for demonstration purposes
-    nodes[3].is_malicious = not nodes[3].is_malicious
-    return jsonify({"status": "success", "university_malicious": nodes[3].is_malicious})
+    data = request.json
+    node_index = data.get('node_index')
+    
+    if 0 <= node_index < len(global_nodes):
+        global_nodes[node_index].is_malicious = not global_nodes[node_index].is_malicious
+        return jsonify({"status": "success", "malicious": global_nodes[node_index].is_malicious})
+    return jsonify({"status": "error"}), 400
+
+@app.route('/api/add_node', methods=['POST'])
+def add_node():
+    new_id = len(global_nodes) + 1
+    new_node = PBFTNode(f"Observer_Node_{new_id}")
+    global_nodes.append(new_node)
+    return jsonify({"status": "success", "total_nodes": len(global_nodes)})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
