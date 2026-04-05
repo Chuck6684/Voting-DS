@@ -105,7 +105,7 @@ global_nodes = [
 network = PBFTNetwork(global_nodes)
 
 # ==========================================
-# 3. FLASK WEB ROUTES 
+# 3. FLASK WEB ROUTES & SECURITY
 # ==========================================
 
 VALID_VOTER_TOKENS = {
@@ -114,20 +114,34 @@ VALID_VOTER_TOKENS = {
     "secret_ramon_784"
 }
 
+# NEW: Keep track of which tokens have successfully voted
+USED_TOKENS = set()
+
 def require_token(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
 
-        if not auth_header or not auth_header.startswitch('Bearer'):
+        # FIXED: Changed 'startswitch' to 'startswith' and added a space after 'Bearer '
+        if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({"status": "error", "message": "Access Denied: Missing Authentication Token" }), 401
         
         token = auth_header.split(' ')[1]
+        
+        # 1. Check if token is in the valid list
         if token not in VALID_VOTER_TOKENS:
-            return jsonify({"status": "error", "message": "Access Denied: Missing Authentication Token" }), 403
+            return jsonify({"status": "error", "message": "Access Denied: Invalid Token" }), 403
+            
+        # 2. NEW: Check if this token has already been used!
+        if token in USED_TOKENS:
+            return jsonify({"status": "error", "message": "Double Voting Detected: This token has already cast a vote!"}), 403
+        
+        # 3. Attach the token to the request so we can mark it as used later
+        request.voter_token = token
         
         return f(*args, **kwargs)
     return decorated
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -154,6 +168,8 @@ def cast_vote():
     success, approvals, required = network.run_consensus(vote_data)
 
     if success:
+        # NEW: The network reached consensus, so we officially "burn" the token
+        USED_TOKENS.add(request.voter_token)
         return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
         return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
