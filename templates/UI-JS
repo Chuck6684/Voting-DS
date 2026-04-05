@@ -1,18 +1,28 @@
-// ==========================================
-// VOTER UI LOGIC
-// ==========================================
 async function castVote() {
     const voterIdInput = document.getElementById('voter_id');
     const candidateSelect = document.getElementById('candidate');
     const submitBtn = document.getElementById('submit-btn');
     const receiptDiv = document.getElementById('receipt');
+    
+    // NEW: Grab the token input box from the HTML
+    const authTokenInput = document.getElementById('auth_token'); 
 
     const voter_id = voterIdInput.value.trim();
     const candidate = candidateSelect.value;
+    
+    // NEW: Get the actual text the user typed for the token
+    const token = authTokenInput.value.trim(); 
 
     // Basic validation
     if (!voter_id) {
         receiptDiv.innerHTML = '⚠️ Please enter a Voter ID.';
+        receiptDiv.style.color = 'orange';
+        return;
+    }
+
+    // NEW: Token validation
+    if (!token) {
+        receiptDiv.innerHTML = '⚠️ Please enter your Secret Authorization Token.';
         receiptDiv.style.color = 'orange';
         return;
     }
@@ -26,7 +36,10 @@ async function castVote() {
         // 2. Send the Request
         const res = await fetch('/api/vote', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // NEW: Attach the secret token to the request!
+            },
             body: JSON.stringify({ voter_id, candidate })
         });
         const data = await res.json();
@@ -41,8 +54,10 @@ async function castVote() {
             
             // Clear the input for the next voter
             voterIdInput.value = '';
+            authTokenInput.value = ''; // NEW: Clear the token so the next person has to type it
         } else {
-            receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Only ${data.approvals}/${data.total_nodes} nodes approved.`;
+            // NEW: If the server rejects the token, it will pass the error message here
+            receiptDiv.innerHTML = `❌ <strong>Error:</strong><br>${data.message || `Only ${data.approvals}/${data.total_nodes} nodes approved.`}`;
             receiptDiv.style.color = 'red';
         }
     } catch (error) {
@@ -56,55 +71,3 @@ async function castVote() {
         fetchStatus(); 
     }
 }
-
-// ==========================================
-// AUDITOR DASHBOARD LOGIC
-// ==========================================
-async function fetchStatus() {
-    try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        
-        const statusBox = document.getElementById('status-box');
-        statusBox.innerHTML = ''; // Clear old data
-
-        // Format the JSON data into a nice readable list
-        data.forEach(node => {
-            const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
-            const nodeColor = node.malicious ? '#dc3545' : '#28a745';
-            
-            statusBox.innerHTML += `
-                <div style="padding: 5px 0; border-bottom: 1px solid #ddd;">
-                    <strong>${node.name}</strong>: 
-                    <span style="color: ${nodeColor}; font-weight: bold;">${isMalicious}</span> 
-                    | Local Paxos Ledger: ${node.ledger_count} votes
-                </div>
-            `;
-        });
-    } catch (error) {
-        console.error("Could not fetch network status", error);
-    }
-}
-
-async function toggleHack() {
-    const hackBtn = document.getElementById('hack-btn');
-    hackBtn.innerText = "Processing Hack...";
-    hackBtn.disabled = true;
-
-    await fetch('/api/toggle_hack', { method: 'POST' });
-    await fetchStatus(); // Update immediately
-    
-    // Reset button visually
-    hackBtn.innerText = "Toggle Hack on University Node";
-    hackBtn.disabled = false;
-}
-
-// ==========================================
-// INITIALIZATION
-// ==========================================
-// Load status immediately on boot
-fetchStatus();
-
-// Set up LIVE POLLING: Auto-refresh the dashboard every 2 seconds
-// This makes the UI feel like a real, live monitoring system!
-setInterval(fetchStatus, 2000);

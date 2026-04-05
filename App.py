@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template
 import hashlib
 import uuid
 import time
+from functools import wraps
 
 app = Flask(__name__)
 
@@ -106,11 +107,33 @@ network = PBFTNetwork(global_nodes)
 # ==========================================
 # 3. FLASK WEB ROUTES 
 # ==========================================
+
+VALID_VOTER_TOKENS = {
+    "secret_charlie_125",
+    "secret_pablo_235",
+    "secret_ramon_784"
+}
+
+def require_token(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+
+        if not auth_header or not auth_header.startswitch('Bearer'):
+            return jsonify({"status": "error", "message": "Access Denied: Missing Authentication Token" }), 401
+        
+        token = auth_header.split(' ')[1]
+        if token not in VALID_VOTER_TOKENS:
+            return jsonify({"status": "error", "message": "Access Denied: Missing Authentication Token" }), 403
+        
+        return f(*args, **kwargs)
+    return decorated
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/api/vote', methods=['POST'])
+@require_token
 def cast_vote():
     data = request.json
     voter_id = data.get('voter_id')
