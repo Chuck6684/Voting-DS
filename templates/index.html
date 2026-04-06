@@ -16,20 +16,32 @@
         .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
         .node-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #ddd; }
         #status-box { background: #eee; padding: 15px; border-radius: 4px; margin-top: 15px; }
+        
+        /* NEW: Utility classes for hiding/showing elements */
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
     <h1>🗳️ Secure Voting Portal (PBFT+Paxos Hybrid Protocol)</h1>
     
-    <div class="container">
+    <div id="login-section" class="card" style="max-width: 400px; margin-bottom: 20px;">
+        <h2>System Login</h2>
+        <p style="color: #555; font-size: 0.9em;">Use <strong>admin</strong> / <strong>password123</strong> to test.</p>
+        <div class="input-group">
+            <input type="text" id="username" placeholder="Username">
+        </div>
+        <div class="input-group" style="margin-bottom: 15px;">
+            <input type="password" id="password" placeholder="Password">
+        </div>
+        <button onclick="login()" style="width: 100%;">Authenticate</button>
+        <div id="login-error" style="color: red; margin-top: 10px; font-size: 0.9em;"></div>
+    </div>
+
+    <div id="main-app" class="container hidden">
         <div class="card">
             <h2>Voter Interface</h2>
             
-            <div class="input-group" style="margin-bottom: 15px;">
-                <input type="text" id="session_token" placeholder="Session Token" value="super-secret-token">
-            </div>
-
             <div class="input-group">
                 <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
                 <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate</button>
@@ -56,12 +68,49 @@
     </div>
 
     <script>
+        // NEW: Login Function
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            errorDiv.innerText = '';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    // Store the token securely in memory
+                    sessionStorage.setItem('authToken', data.token);
+                    
+                    // Hide login, show main app
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('main-app').classList.remove('hidden');
+                    
+                    // Start fetching auditor data now that we are logged in
+                    fetchStatus();
+                    setInterval(fetchStatus, 2000);
+                } else {
+                    errorDiv.innerText = data.message;
+                }
+            } catch (error) {
+                errorDiv.innerText = "Network error connecting to login server.";
+            }
+        }
+
         function generateVoterId() {
             document.getElementById('voter_id').value = crypto.randomUUID();
         }
 
         async function castVote() {
-            const tokenInput = document.getElementById('session_token').value.trim();
+            // Retrieve the token from memory quietly
+            const token = sessionStorage.getItem('authToken');
             const voterIdInput = document.getElementById('voter_id');
             const candidateSelect = document.getElementById('candidate');
             const submitBtn = document.getElementById('submit-btn');
@@ -76,40 +125,29 @@
                 return;
             }
 
-            if (!tokenInput) {
-                receiptDiv.innerHTML = '⚠️ Please enter a Session Token.';
-                receiptDiv.style.color = 'orange';
-                return;
-            }
-
             submitBtn.disabled = true;
             submitBtn.innerText = '⚙️ Running PBFT Consensus...';
             receiptDiv.innerHTML = '';
 
             try {
-                // Send POST request WITH auth headers
                 const res = await fetch('/api/vote', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${tokenInput}`
+                        'Authorization': `Bearer ${token}` // Pass it in the header
                     },
                     body: JSON.stringify({ voter_id, candidate })
                 });
               
                 const data = await res.json();
                 
-                // Handle success
                 if(data.status === 'success') {
                     receiptDiv.innerHTML = 
                         `✅ <strong>Vote Committed!</strong><br>
                         <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
                         <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
                     receiptDiv.style.color = 'green';
-                    
-                    // Don't clear ID so user can try to double-vote and see the error
                 } else {
-                    // Prints whichever error the backend sent (Duplicate, Unauthorized, Consensus Failed)
                     receiptDiv.innerHTML = `❌ <strong>Error:</strong> ${data.message}`;
                     receiptDiv.style.color = 'red';
                 }
@@ -161,9 +199,6 @@
                 `;
             });
         }
-
-        fetchStatus();
-        setInterval(fetchStatus, 2000);
     </script>
 </body>
 </html>

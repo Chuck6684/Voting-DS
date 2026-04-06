@@ -147,6 +147,21 @@ load_votes_from_csv(global_nodes)
 def index():
     return render_template('index.html')
 
+# Add this above your @app.route('/api/vote')
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    # In a real app, you would hash the password and check a database.
+    # For this example, we'll hardcode a valid user.
+    if username == "admin" and password == "password123":
+        return jsonify({"status": "success", "token": VALID_TOKEN})
+    else:
+        return jsonify({"status": "error", "message": "Invalid username or password"}), 401
+    
 @app.route('/api/vote', methods=['POST'])
 @token_required
 def cast_vote():
