@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, render_template
 import hashlib
 import uuid
 import time
+import csv
+import os
 from functools import wraps
 
 app = Flask(__name__)
@@ -115,7 +117,32 @@ VALID_VOTER_TOKENS = {
 }
 
 # NEW: Keep track of which tokens have successfully voted
-USED_TOKENS = set()
+RESULTS_FILE = 'voting_results.csv'
+
+def load_existing_data():
+    """Reads the CSV on startup to rebuild the USED_TOKENS list."""
+    # If the file doesn't exist yet, create it and write the header row
+    if not os.path.exists(RESULTS_FILE):
+        with open(RESULTS_FILE, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['vote_hash', 'voter_token', 'voter_id', 'candidate', 'timestamp'])
+        return set()
+    
+    # If the file exists, read it and remember which tokens were used
+    used = set()
+    with open(RESULTS_FILE, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            used.add(row['voter_token'])
+            
+            # (Optional) You could also push this row data back into 
+            # your Paxos ledgers here so the dashboard shows past votes!
+            
+    print(f"[*] Bootup complete: Loaded {len(used)} past votes from CSV.")
+    return used
+
+# Initialize our used tokens from the permanent database!
+USED_TOKENS = load_existing_data()
 
 def require_token(f):
     @wraps(f)
@@ -168,12 +195,24 @@ def cast_vote():
     success, approvals, required = network.run_consensus(vote_data)
 
     if success:
-        # NEW: The network reached consensus, so we officially "burn" the token
+        # The network reached consensus, so we officially "burn" the token
         USED_TOKENS.add(request.voter_token)
+        
+        # NEW: Write the official record to the CSV file
+        with open(RESULTS_FILE, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                vote_hash, 
+                request.voter_token, 
+                voter_id, 
+                candidate, 
+                timestamp
+            ])
+            
         return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
         return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
-
+    
 @app.route('/api/status', methods=['GET'])
 def get_status():
     node_status = [{"id": i, "name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.local_ledger)} for i, n in enumerate(global_nodes)]
