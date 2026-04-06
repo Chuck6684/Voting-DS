@@ -25,6 +25,11 @@
     <div class="container">
         <div class="card">
             <h2>Voter Interface</h2>
+            
+            <div class="input-group" style="margin-bottom: 15px;">
+                <input type="text" id="session_token" placeholder="Session Token" value="super-secret-token">
+            </div>
+
             <div class="input-group">
                 <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
                 <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate</button>
@@ -56,6 +61,7 @@
         }
 
         async function castVote() {
+            const tokenInput = document.getElementById('session_token').value.trim();
             const voterIdInput = document.getElementById('voter_id');
             const candidateSelect = document.getElementById('candidate');
             const submitBtn = document.getElementById('submit-btn');
@@ -70,23 +76,30 @@
                 return;
             }
 
+            if (!tokenInput) {
+                receiptDiv.innerHTML = '⚠️ Please enter a Session Token.';
+                receiptDiv.style.color = 'orange';
+                return;
+            }
+
             submitBtn.disabled = true;
             submitBtn.innerText = '⚙️ Running PBFT Consensus...';
             receiptDiv.innerHTML = '';
 
             try {
-                // Send basic POST request without auth headers
+                // Send POST request WITH auth headers
                 const res = await fetch('/api/vote', {
                     method: 'POST',
                     headers: { 
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${tokenInput}`
                     },
                     body: JSON.stringify({ voter_id, candidate })
                 });
               
                 const data = await res.json();
                 
-                // Handle standard PBFT success/fail response
+                // Handle success
                 if(data.status === 'success') {
                     receiptDiv.innerHTML = 
                         `✅ <strong>Vote Committed!</strong><br>
@@ -94,9 +107,10 @@
                         <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
                     receiptDiv.style.color = 'green';
                     
-                    voterIdInput.value = '';
+                    // Don't clear ID so user can try to double-vote and see the error
                 } else {
-                    receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})<br>Network is compromised. Vote discarded.`;
+                    // Prints whichever error the backend sent (Duplicate, Unauthorized, Consensus Failed)
+                    receiptDiv.innerHTML = `❌ <strong>Error:</strong> ${data.message}`;
                     receiptDiv.style.color = 'red';
                 }
             } catch (error) {

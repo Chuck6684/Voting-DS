@@ -1,15 +1,56 @@
 from flask import Flask, request, jsonify, render_template
+from functools import wraps
 import hashlib
 import uuid
 import time
+import csv
+import os
 
 app = Flask(__name__)
+
+# ==========================================
+# NEW: CONSTANTS & CSV SETUP
+# ==========================================
+CSV_FILENAME = 'votes.csv'
+VALID_TOKEN = "super-secret-token" # In a real app, this would be validated against a DB/JWT
+voted_users = set()
+
+def load_votes_from_csv(nodes):
+    """Loads past votes from CSV into memory and the nodes' ledgers."""
+    if os.path.exists(CSV_FILENAME):
+        with open(CSV_FILENAME, mode='r') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                voted_users.add(row['voter_id'])
+                # Populate the local ledger of each honest node so UI reflects history
+                for node in nodes:
+                    if not node.is_malicious:
+                        node.paxos_backend.servers[0].ledger.append(row)
+
+def save_vote_to_csv(vote_data):
+    """Appends a successfully committed vote to the CSV."""
+    file_exists = os.path.exists(CSV_FILENAME)
+    with open(CSV_FILENAME, mode='a', newline='') as file:
+        fieldnames = ['hash', 'voter_id', 'candidate', 'timestamp']
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(vote_data)
+
+def token_required(f):
+    """Decorator to verify the session token."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or auth_header != f"Bearer {VALID_TOKEN}":
+            return jsonify({'status': 'error', 'message': 'Unauthorized. Invalid or missing session token.'}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 # ==========================================
 # 1. PAXOS LOGIC (Local Organization Consensus)
 # ==========================================
 class InternalPaxosServer:
-    """Represents a single database server inside an organization."""
     def __init__(self, server_id):
         self.server_id = server_id
         self.highest_proposal = 0
@@ -29,7 +70,6 @@ class InternalPaxosServer:
         return False
 
 class PaxosCluster:
-    """The local network for an organization, running Paxos across multiple servers."""
     def __init__(self, org_name, num_internal_servers=3):
         self.org_name = org_name
         self.servers = [InternalPaxosServer(i) for i in range(num_internal_servers)]
@@ -39,11 +79,9 @@ class PaxosCluster:
         self.proposal_counter += 1
         proposal_id = self.proposal_counter
         
-        # Phase 1: PREPARE
         promises = sum(1 for s in self.servers if s.prepare(proposal_id))
         majority = (len(self.servers) // 2) + 1
         
-        # Phase 2: ACCEPT
         if promises >= majority:
             accepts = sum(1 for s in self.servers if s.accept(proposal_id, vote_data))
             if accepts >= majority:
@@ -79,7 +117,6 @@ class PBFTNetwork:
             if node.validate_vote(vote):
                 approvals += 1
                 
-        # Supermajority: 2/3 + 1
         required_majority = (2 * len(self.nodes) // 3) + 1
         
         if approvals >= required_majority:
@@ -99,6 +136,9 @@ global_nodes = [
 ]
 network = PBFTNetwork(global_nodes)
 
+# Load existing votes from CSV on startup
+load_votes_from_csv(global_nodes)
+
 # ==========================================
 # 3. FLASK WEB ROUTES 
 # ==========================================
@@ -108,10 +148,15 @@ def index():
     return render_template('index.html')
 
 @app.route('/api/vote', methods=['POST'])
+@token_required
 def cast_vote():
     data = request.json
     voter_id = data.get('voter_id')
     candidate = data.get('candidate')
+
+    # Ensure user hasn't voted already
+    if voter_id in voted_users:
+        return jsonify({"status": "error", "message": "Duplicate Vote: This Voter ID has already been used."}), 403
 
     vote_id = str(uuid.uuid4())
     timestamp = time.time()
@@ -128,6 +173,8 @@ def cast_vote():
     success, approvals, required = network.run_consensus(vote_data)
 
     if success:
+        voted_users.add(voter_id) # Mark user as voted
+        save_vote_to_csv(vote_data) # Persist to CSV
         return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
         return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
@@ -151,6 +198,9 @@ def toggle_hack():
 def add_node():
     new_id = len(global_nodes) + 1
     new_node = PBFTNode(f"Observer_Node_{new_id}")
+    # Sync new node with existing history
+    for _ in range(len(voted_users)): 
+        new_node.paxos_backend.servers[0].ledger.append({}) # Dummy data just for ledger count sync
     global_nodes.append(new_node)
     return jsonify({"status": "success", "total_nodes": len(global_nodes)})
 
