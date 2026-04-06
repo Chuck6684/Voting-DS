@@ -71,11 +71,16 @@
             receiptDiv.innerHTML = '';
 
             try {
-                const res = await fetch('/api/vote', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ voter_id, candidate })
+                // CORRECT: The token is attached to the headers
+            const res = await fetch('/api/vote', {
+             method: 'POST',
+            headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` // <--- THIS IS THE MISSING PIECE!
+            },
+             body: JSON.stringify({ voter_id, candidate })
                 });
+              
                 const data = await res.json();
                 
                 // 3. Handle the Response
