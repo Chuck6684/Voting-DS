@@ -9,28 +9,51 @@ import os
 app = Flask(__name__)
 
 # ==========================================
-# NEW: CONSTANTS & CSV SETUP
+# CONSTANTS & CSV SETUP
 # ==========================================
-CSV_FILENAME = 'votes.csv'
-VALID_TOKEN = "super-secret-token" # In a real app, this would be validated against a DB/JWT
-voted_users = set()
+VOTES_CSV_FILENAME = 'votes.csv'
+USERS_CSV_FILENAME = 'users.csv'
+VALID_TOKEN = "super-secret-token" 
 
+voted_users = set()
+registered_users = {}
+
+# --- NEW: User Database Persistence ---
+def load_users_from_csv():
+    """Loads registered users and their assigned Voter IDs into memory."""
+    if os.path.exists(USERS_CSV_FILENAME):
+        with open(USERS_CSV_FILENAME, mode='r') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                registered_users[row['username']] = {
+                    "password": row['password'],
+                    "voter_id": row['voter_id']
+                }
+
+def save_user_to_csv(username, password, voter_id):
+    """Saves a newly registered user to the CSV."""
+    file_exists = os.path.exists(USERS_CSV_FILENAME)
+    with open(USERS_CSV_FILENAME, mode='a', newline='') as file:
+        fieldnames = ['username', 'password', 'voter_id']
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({"username": username, "password": password, "voter_id": voter_id})
+
+# --- Existing Vote Database Persistence ---
 def load_votes_from_csv(nodes):
-    """Loads past votes from CSV into memory and the nodes' ledgers."""
-    if os.path.exists(CSV_FILENAME):
-        with open(CSV_FILENAME, mode='r') as file:
+    if os.path.exists(VOTES_CSV_FILENAME):
+        with open(VOTES_CSV_FILENAME, mode='r') as file:
             reader = csv.DictReader(file)
             for row in reader:
                 voted_users.add(row['voter_id'])
-                # Populate the local ledger of each honest node so UI reflects history
                 for node in nodes:
                     if not node.is_malicious:
                         node.paxos_backend.servers[0].ledger.append(row)
 
 def save_vote_to_csv(vote_data):
-    """Appends a successfully committed vote to the CSV."""
-    file_exists = os.path.exists(CSV_FILENAME)
-    with open(CSV_FILENAME, mode='a', newline='') as file:
+    file_exists = os.path.exists(VOTES_CSV_FILENAME)
+    with open(VOTES_CSV_FILENAME, mode='a', newline='') as file:
         fieldnames = ['hash', 'voter_id', 'candidate', 'timestamp']
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         if not file_exists:
@@ -38,7 +61,6 @@ def save_vote_to_csv(vote_data):
         writer.writerow(vote_data)
 
 def token_required(f):
-    """Decorator to verify the session token."""
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
@@ -48,7 +70,7 @@ def token_required(f):
     return decorated
 
 # ==========================================
-# 1. PAXOS LOGIC (Local Organization Consensus)
+# 1. PAXOS LOGIC 
 # ==========================================
 class InternalPaxosServer:
     def __init__(self, server_id):
@@ -92,9 +114,8 @@ class PaxosCluster:
     def local_ledger(self):
         return self.servers[0].ledger
 
-
 # ==========================================
-# 2. PBFT LOGIC (Global Network Consensus)
+# 2. PBFT LOGIC
 # ==========================================
 class PBFTNode:
     def __init__(self, name):
@@ -126,8 +147,7 @@ class PBFTNetwork:
             return True, approvals, required_majority
         return False, approvals, required_majority
 
-
-# Initialize with 4 standard nodes
+# Initialize network
 global_nodes = [
     PBFTNode("Electoral_Commission"),
     PBFTNode("Independent_Auditor"),
@@ -136,7 +156,8 @@ global_nodes = [
 ]
 network = PBFTNetwork(global_nodes)
 
-# Load existing votes from CSV on startup
+# Load databases on startup
+load_users_from_csv()
 load_votes_from_csv(global_nodes)
 
 # ==========================================
@@ -147,21 +168,42 @@ load_votes_from_csv(global_nodes)
 def index():
     return render_template('index.html')
 
-# Add this above your @app.route('/api/vote')
-
+# UPDATED: Dynamic Registration & Login
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
     
-    # In a real app, you would hash the password and check a database.
-    # For this example, we'll hardcode a valid user.
-    if username == "admin" and password == "password123":
-        return jsonify({"status": "success", "token": VALID_TOKEN})
-    else:
-        return jsonify({"status": "error", "message": "Invalid username or password"}), 401
+    if not username or not password:
+        return jsonify({"status": "error", "message": "Username and password required"}), 400
+
+    # 1. Check if user already exists
+    if username in registered_users:
+        if registered_users[username]['password'] == password:
+            return jsonify({
+                "status": "success", 
+                "token": VALID_TOKEN,
+                "voter_id": registered_users[username]['voter_id']
+            })
+        else:
+            return jsonify({"status": "error", "message": "Invalid password"}), 401
     
+    # 2. If user doesn't exist, auto-register them and assign an unchangeable ID
+    else:
+        new_voter_id = f"usr-{str(uuid.uuid4())}"
+        registered_users[username] = {
+            "password": password,
+            "voter_id": new_voter_id
+        }
+        save_user_to_csv(username, password, new_voter_id)
+        
+        return jsonify({
+            "status": "success", 
+            "token": VALID_TOKEN,
+            "voter_id": new_voter_id
+        })
+
 @app.route('/api/vote', methods=['POST'])
 @token_required
 def cast_vote():
@@ -169,7 +211,6 @@ def cast_vote():
     voter_id = data.get('voter_id')
     candidate = data.get('candidate')
 
-    # Ensure user hasn't voted already
     if voter_id in voted_users:
         return jsonify({"status": "error", "message": "Duplicate Vote: This Voter ID has already been used."}), 403
 
@@ -188,8 +229,8 @@ def cast_vote():
     success, approvals, required = network.run_consensus(vote_data)
 
     if success:
-        voted_users.add(voter_id) # Mark user as voted
-        save_vote_to_csv(vote_data) # Persist to CSV
+        voted_users.add(voter_id) 
+        save_vote_to_csv(vote_data) 
         return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
         return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
@@ -213,9 +254,8 @@ def toggle_hack():
 def add_node():
     new_id = len(global_nodes) + 1
     new_node = PBFTNode(f"Observer_Node_{new_id}")
-    # Sync new node with existing history
     for _ in range(len(voted_users)): 
-        new_node.paxos_backend.servers[0].ledger.append({}) # Dummy data just for ledger count sync
+        new_node.paxos_backend.servers[0].ledger.append({}) 
     global_nodes.append(new_node)
     return jsonify({"status": "success", "total_nodes": len(global_nodes)})
 

@@ -8,8 +8,6 @@
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; }
         button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
-        .generate-btn { background: #6c757d; white-space: nowrap; }
-        .generate-btn:hover { background: #5a6268; }
         .mini-hack-btn { background: #dc3545; padding: 5px 10px; font-size: 0.8em; margin-left: 10px; }
         .mini-hack-btn:hover { background: #a71d2a; }
         input, select { padding: 10px; width: 100%; box-sizing: border-box; }
@@ -17,8 +15,8 @@
         .node-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #ddd; }
         #status-box { background: #eee; padding: 15px; border-radius: 4px; margin-top: 15px; }
         
-        /* NEW: Utility classes for hiding/showing elements */
         .hidden { display: none !important; }
+        input[readonly] { background-color: #e9ecef; color: #495057; cursor: not-allowed; border: 1px solid #ced4da; }
     </style>
 </head>
 <body>
@@ -27,14 +25,16 @@
     
     <div id="login-section" class="card" style="max-width: 400px; margin-bottom: 20px;">
         <h2>System Login</h2>
-        <p style="color: #555; font-size: 0.9em;">Use <strong>admin</strong> / <strong>password123</strong> to test.</p>
+        <p style="color: #555; font-size: 0.9em;">
+            Log in with an existing account, or enter a new username/password to automatically register and receive your locked Voter ID.
+        </p>
         <div class="input-group">
             <input type="text" id="username" placeholder="Username">
         </div>
         <div class="input-group" style="margin-bottom: 15px;">
             <input type="password" id="password" placeholder="Password">
         </div>
-        <button onclick="login()" style="width: 100%;">Authenticate</button>
+        <button onclick="login()" style="width: 100%;">Authenticate / Register</button>
         <div id="login-error" style="color: red; margin-top: 10px; font-size: 0.9em;"></div>
     </div>
 
@@ -43,8 +43,7 @@
             <h2>Voter Interface</h2>
             
             <div class="input-group">
-                <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
-                <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate</button>
+                <input type="text" id="voter_id" placeholder="Authenticating ID..." readonly>
             </div>
             
             <select id="candidate" style="margin-bottom: 15px;">
@@ -68,7 +67,6 @@
     </div>
 
     <script>
-        // NEW: Login Function
         async function login() {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
@@ -86,14 +84,14 @@
                 const data = await res.json();
 
                 if (data.status === 'success') {
-                    // Store the token securely in memory
                     sessionStorage.setItem('authToken', data.token);
+                    sessionStorage.setItem('voterId', data.voter_id); 
                     
-                    // Hide login, show main app
+                    document.getElementById('voter_id').value = data.voter_id;
+
                     document.getElementById('login-section').classList.add('hidden');
                     document.getElementById('main-app').classList.remove('hidden');
                     
-                    // Start fetching auditor data now that we are logged in
                     fetchStatus();
                     setInterval(fetchStatus, 2000);
                 } else {
@@ -104,23 +102,17 @@
             }
         }
 
-        function generateVoterId() {
-            document.getElementById('voter_id').value = crypto.randomUUID();
-        }
-
         async function castVote() {
-            // Retrieve the token from memory quietly
             const token = sessionStorage.getItem('authToken');
-            const voterIdInput = document.getElementById('voter_id');
+            const voter_id = sessionStorage.getItem('voterId'); 
             const candidateSelect = document.getElementById('candidate');
             const submitBtn = document.getElementById('submit-btn');
             const receiptDiv = document.getElementById('receipt');
 
-            const voter_id = voterIdInput.value.trim();
             const candidate = candidateSelect.value;
 
             if (!voter_id) {
-                receiptDiv.innerHTML = '⚠️ Please enter a Voter ID.';
+                receiptDiv.innerHTML = '⚠️ Authentication error. Missing Voter ID.';
                 receiptDiv.style.color = 'orange';
                 return;
             }
@@ -134,7 +126,7 @@
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` // Pass it in the header
+                        'Authorization': `Bearer ${token}` 
                     },
                     body: JSON.stringify({ voter_id, candidate })
                 });
