@@ -45,19 +45,24 @@ async function castVote() {
         const data = await res.json();
         
         // 3. Handle the Response
+        // 3. Handle the Response
         if(data.status === 'success') {
             receiptDiv.innerHTML = 
                 `✅ <strong>Vote Committed!</strong><br>
                 <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
                 <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
             receiptDiv.style.color = 'green';
-            
-            // Clear the input for the next voter
             voterIdInput.value = '';
-            authTokenInput.value = ''; // NEW: Clear the token so the next person has to type it
+            authTokenInput.value = ''; 
+
         } else {
-            // NEW: If the server rejects the token, it will pass the error message here
-            receiptDiv.innerHTML = `❌ <strong>Error:</strong><br>${data.message || `Only ${data.approvals}/${data.total_nodes} nodes approved.`}`;
+            // NEW: Check if the backend sent a specific security message!
+            if (data.message) {
+                receiptDiv.innerHTML = `❌ <strong>Security Alert:</strong><br>${data.message}`;
+            } else {
+                // Otherwise, it was a PBFT hack failure
+                receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})<br>Network is compromised. Vote discarded.`;
+            }
             receiptDiv.style.color = 'red';
         }
     } catch (error) {
