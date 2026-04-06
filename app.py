@@ -2,9 +2,6 @@ from flask import Flask, request, jsonify, render_template
 import hashlib
 import uuid
 import time
-import csv
-import os
-from functools import wraps
 
 app = Flask(__name__)
 
@@ -35,7 +32,6 @@ class PaxosCluster:
     """The local network for an organization, running Paxos across multiple servers."""
     def __init__(self, org_name, num_internal_servers=3):
         self.org_name = org_name
-        # Each organization has 3 internal servers to prevent local data loss
         self.servers = [InternalPaxosServer(i) for i in range(num_internal_servers)]
         self.proposal_counter = 0
 
@@ -43,13 +39,12 @@ class PaxosCluster:
         self.proposal_counter += 1
         proposal_id = self.proposal_counter
         
-        # Phase 1: PREPARE (Ask internal servers if they are ready)
+        # Phase 1: PREPARE
         promises = sum(1 for s in self.servers if s.prepare(proposal_id))
         majority = (len(self.servers) // 2) + 1
         
-        # If a majority of internal servers promise, proceed to Accept
+        # Phase 2: ACCEPT
         if promises >= majority:
-            # Phase 2: ACCEPT (Tell internal servers to permanently save the vote)
             accepts = sum(1 for s in self.servers if s.accept(proposal_id, vote_data))
             if accepts >= majority:
                 return True
@@ -57,7 +52,6 @@ class PaxosCluster:
 
     @property
     def local_ledger(self):
-        # For the dashboard, we just read the ledger from the first internal server
         return self.servers[0].ledger
 
 
@@ -91,7 +85,6 @@ class PBFTNetwork:
         if approvals >= required_majority:
             for node in self.nodes:
                 if not node.is_malicious:
-                    # Trigger the Paxos algorithm to save the vote locally
                     node.paxos_backend.replicate(vote)
             return True, approvals, required_majority
         return False, approvals, required_majority
@@ -107,74 +100,14 @@ global_nodes = [
 network = PBFTNetwork(global_nodes)
 
 # ==========================================
-# 3. FLASK WEB ROUTES & SECURITY
+# 3. FLASK WEB ROUTES 
 # ==========================================
-
-VALID_VOTER_TOKENS = {
-    "secret_charlie_125",
-    "secret_pablo_235",
-    "secret_ramon_784"
-}
-
-# NEW: Keep track of which tokens have successfully voted
-RESULTS_FILE = 'voting_results.csv'
-
-def load_existing_data():
-    """Reads the CSV on startup to rebuild the USED_TOKENS list."""
-    # If the file doesn't exist yet, create it and write the header row
-    if not os.path.exists(RESULTS_FILE):
-        with open(RESULTS_FILE, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['vote_hash', 'voter_token', 'voter_id', 'candidate', 'timestamp'])
-        return set()
-    
-    # If the file exists, read it and remember which tokens were used
-    used = set()
-    with open(RESULTS_FILE, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            used.add(row['voter_token'])
-            
-            # (Optional) You could also push this row data back into 
-            # your Paxos ledgers here so the dashboard shows past votes!
-            
-    print(f"[*] Bootup complete: Loaded {len(used)} past votes from CSV.")
-    return used
-
-# Initialize our used tokens from the permanent database!
-USED_TOKENS = load_existing_data()
-
-def require_token(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-
-        # FIXED: Changed 'startswitch' to 'startswith' and added a space after 'Bearer '
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({"status": "error", "message": "Access Denied: Missing Authentication Token" }), 401
-        
-        token = auth_header.split(' ')[1]
-        
-        # 1. Check if token is in the valid list
-        if token not in VALID_VOTER_TOKENS:
-            return jsonify({"status": "error", "message": "Access Denied: Invalid Token" }), 403
-            
-        # 2. NEW: Check if this token has already been used!
-        if token in USED_TOKENS:
-            return jsonify({"status": "error", "message": "Double Voting Detected: This token has already cast a vote!"}), 403
-        
-        # 3. Attach the token to the request so we can mark it as used later
-        request.voter_token = token
-        
-        return f(*args, **kwargs)
-    return decorated
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/api/vote', methods=['POST'])
-@require_token
 def cast_vote():
     data = request.json
     voter_id = data.get('voter_id')
@@ -195,24 +128,10 @@ def cast_vote():
     success, approvals, required = network.run_consensus(vote_data)
 
     if success:
-        # The network reached consensus, so we officially "burn" the token
-        USED_TOKENS.add(request.voter_token)
-        
-        # NEW: Write the official record to the CSV file
-        with open(RESULTS_FILE, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                vote_hash, 
-                request.voter_token, 
-                voter_id, 
-                candidate, 
-                timestamp
-            ])
-            
         return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
     else:
         return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
-    
+
 @app.route('/api/status', methods=['GET'])
 def get_status():
     node_status = [{"id": i, "name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.local_ledger)} for i, n in enumerate(global_nodes)]

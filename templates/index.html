@@ -29,7 +29,7 @@
                 <input type="text" id="voter_id" placeholder="Enter or Generate Voter UUID">
                 <button class="generate-btn" onclick="generateVoterId()">🎲 Auto-Generate</button>
             </div>
-            <input type="password" id="auth_token" placeholder="Enter Secret Voter Token" style="margin-bottom: 10px; border: 1px solid #dc3545;">
+            
             <select id="candidate" style="margin-bottom: 15px;">
                 <option value="Pablo">Pablo</option>
                 <option value="Ramon">Ramon</option>
@@ -64,47 +64,44 @@
             const voter_id = voterIdInput.value.trim();
             const candidate = candidateSelect.value;
 
-            if (!voter_id) return;
+            if (!voter_id) {
+                receiptDiv.innerHTML = '⚠️ Please enter a Voter ID.';
+                receiptDiv.style.color = 'orange';
+                return;
+            }
 
             submitBtn.disabled = true;
             submitBtn.innerText = '⚙️ Running PBFT Consensus...';
             receiptDiv.innerHTML = '';
 
             try {
-                // CORRECT: The token is attached to the headers
-            const res = await fetch('/api/vote', {
-             method: 'POST',
-            headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` // <--- THIS IS THE MISSING PIECE!
-            },
-             body: JSON.stringify({ voter_id, candidate })
+                // Send basic POST request without auth headers
+                const res = await fetch('/api/vote', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ voter_id, candidate })
                 });
               
                 const data = await res.json();
                 
-                // 3. Handle the Response
-        if(data.status === 'success') {
-            receiptDiv.innerHTML = 
-                `✅ <strong>Vote Committed!</strong><br>
-                <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
-                <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
-            receiptDiv.style.color = 'green';
-            
-            voterIdInput.value = '';
-            authTokenInput.value = ''; 
-        } else {
-            // NEW: Check if the backend sent a specific security message!
-            if (data.message) {
-                receiptDiv.innerHTML = `❌ <strong>Security Alert:</strong><br>${data.message}`;
-            } else {
-                // Otherwise, it was a PBFT hack failure
-                receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})<br>Network is compromised. Vote discarded.`;
-            }
-            receiptDiv.style.color = 'red';
-        }
+                // Handle standard PBFT success/fail response
+                if(data.status === 'success') {
+                    receiptDiv.innerHTML = 
+                        `✅ <strong>Vote Committed!</strong><br>
+                        <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
+                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
+                    receiptDiv.style.color = 'green';
+                    
+                    voterIdInput.value = '';
+                } else {
+                    receiptDiv.innerHTML = `❌ <strong>Consensus Failed!</strong><br>Approvals: ${data.approvals} / ${data.total_nodes} (Required: ${data.required})<br>Network is compromised. Vote discarded.`;
+                    receiptDiv.style.color = 'red';
+                }
             } catch (error) {
-                receiptDiv.innerHTML = `❌ Network Error.`;
+                receiptDiv.innerHTML = `❌ Network Error. Could not reach the API.`;
+                receiptDiv.style.color = 'red';
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerText = 'Submit Secure Vote';
