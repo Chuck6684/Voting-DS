@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Election Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .candidate-name { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
+        .vote-stats { color: #555; font-size: 0.9em; margin-bottom: 10px; }
+        
+        /* Progress Bar Styling */
+        .progress-track { background: #e9ecef; border-radius: 20px; width: 100%; height: 25px; overflow: hidden; position: relative; }
+        .progress-fill { background: #007bff; height: 100%; transition: width 0.8s ease-in-out; }
+        .winner-fill { background: #28a745; } /* Turns green when they hit 10 */
+        
+        .back-btn { display: inline-block; padding: 10px 15px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; }
+        .back-btn:hover { background: #5a6268; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>📊 Live Election Results</h1>
+        <p style="color: #666;">First candidate to 10 votes wins.</p>
+        
+        <div id="results-container">
+            <p>Loading results...</p>
+        </div>
+
+        <a href="/" class="back-btn">⬅️ Back to Voting</a>
+    </div>
+
+    <script>
+        async function fetchResults() {
+            try {
+                const res = await fetch('/api/results');
+                const data = await res.json();
+                
+                const container = document.getElementById('results-container');
+                container.innerHTML = ''; // Clear loading text
+
+                data.forEach(stat => {
+                    // Change bar color if they hit the threshold
+                    const fillClass = stat.votes >= 10 ? 'progress-fill winner-fill' : 'progress-fill';
+                    const remainingText = stat.votes >= 10 ? '👑 Winner!' : `${stat.remaining} votes needed to win`;
+
+                    container.innerHTML += `
+                        <div class="card">
+                            <div class="candidate-name">${stat.candidate}</div>
+                            <div class="vote-stats">
+                                <strong>${stat.votes}</strong> Votes &nbsp;|&nbsp; <em>${remainingText}</em>
+                            </div>
+                            <div class="progress-track">
+                                <div class="${fillClass}" style="width: ${stat.percentage}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (error) {
+                document.getElementById('results-container').innerHTML = '<p style="color:red;">Error loading results.</p>';
+            }
+        }
+
+        // Fetch immediately, then update every 3 seconds
+        fetchResults();
+        setInterval(fetchResults, 3000);
+    </script>
+</body>
+</html>

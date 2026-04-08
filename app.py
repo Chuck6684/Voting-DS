@@ -259,5 +259,52 @@ def add_node():
     global_nodes.append(new_node)
     return jsonify({"status": "success", "total_nodes": len(global_nodes)})
 
+import csv # Make sure this is at the very top of your app.py!
+import os
+
+@app.route('/results')
+def results_page():
+    return render_template('results.html')
+
+@app.route('/api/results', methods=['GET'])
+def get_results():
+    # The goal threshold
+    WINNING_THRESHOLD = 10 
+    
+    # Initialize our score board
+    vote_counts = {"Pablo": 0, "Ramon": 0, "Charlie": 0}
+    
+    # Read the CSV (if it exists)
+    if os.path.exists('votes.csv'):
+        with open('votes.csv', mode='r') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                # Assuming your CSV format is: Hash, VoterID, Candidate, Timestamp
+                # So the candidate name is in the 3rd column (index 2)
+                if len(row) >= 3:
+                    candidate = row[2]
+                    if candidate in vote_counts:
+                        vote_counts[candidate] += 1
+                        
+    # Package the results with the math done for the frontend
+    results_data = []
+    for candidate, votes in vote_counts.items():
+        remaining = WINNING_THRESHOLD - votes
+        if remaining < 0:
+            remaining = 0 # Don't show negative numbers if they pass 10
+            
+        percentage = (votes / WINNING_THRESHOLD) * 100
+        if percentage > 100:
+            percentage = 100
+            
+        results_data.append({
+            "candidate": candidate,
+            "votes": votes,
+            "remaining": remaining,
+            "percentage": percentage
+        })
+        
+    return jsonify(results_data)
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
