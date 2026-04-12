@@ -3,75 +3,73 @@
 <head>
     <title>Voter Portal - Secure System</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding-top: 50px; }
-        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 400px; }
-        .hidden { display: none; }
-        input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; }
-        button { background: #0062ff; color: white; font-weight: bold; border: none; cursor: pointer; }
-        button:disabled { background: #ccc; }
+        body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h2 { text-align: center; color: #1a73e8; margin-top: 0; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        .btn { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .btn:hover { background: #1557b0; }
+        #message { margin-top: 20px; text-align: center; font-weight: bold; }
+        .success { color: green; }
+        .error { color: red; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2 id="title">🗳️ Secure Voting Portal</h2>
-        
-        <div id="login-section">
-            <input type="text" id="username" placeholder="Username">
-            <input type="password" id="password" placeholder="Password">
-            <button onclick="login()">Enter System</button>
-        </div>
 
-        <div id="vote-section" class="hidden">
-            <p>Voter ID: <strong id="v-id">---</strong></p>
-            <select id="candidate">
-                <option value="Pablo">Pablo</option>
-                <option value="Ramon">Ramon</option>
-                <option value="Charlie">Charlie</option>
-            </select>
-            <button id="vote-btn" onclick="castVote()">Cast Secure Vote</button>
-            <div id="msg" style="margin-top: 15px;"></div>
-        </div>
+    <div class="card">
+        <h2>🗳️ Secure Voting Portal</h2>
+        <form id="voteForm">
+            <div class="form-group">
+                <label>Tu Nombre / Email:</label>
+                <input type="text" name="voter_name" id="voter_name" value="rzapater@ltu.edu" required>
+            </div>
+            <div class="form-group">
+                <label>Selecciona un Candidato:</label>
+                <select name="candidate" id="candidate" required>
+                    <option value="">-- Elige una opción --</option>
+                    <option value="Alice">Alice (Partido A)</option>
+                    <option value="Bob">Bob (Partido B)</option>
+                    <option value="Charlie">Charlie (Partido C)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn">Emitir Voto Seguro</button>
+        </form>
+        <div id="message"></div>
     </div>
 
     <script>
-        async function login() {
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: document.getElementById('username').value, password:  document.getElementById('password').value})
-            });
-            const data = await res.json();
-            if(data.status === 'success') {
-                sessionStorage.setItem('token', data.token);
-                sessionStorage.setItem('vId', data.voter_id);
-                document.getElementById('v-id').innerText = data.voter_id;
-                document.getElementById('login-section').classList.add('hidden');
-                document.getElementById('vote-section').classList.remove('hidden');
-            }
-        }
+        document.getElementById('voteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = "Procesando consenso en la red...";
+            messageDiv.className = "";
 
-        async function castVote() {
-            const btn = document.getElementById('vote-btn');
-            btn.disabled = true;
-            btn.innerText = "Running PBFT Consensus...";
-            
-            const res = await fetch('/api/vote', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionStorage.getItem('token')},
-                body: JSON.stringify({voter_id: sessionStorage.getItem('vId'), candidate: document.getElementById('candidate').value})
-            });
-            const data = await res.json();
-            const msg = document.getElementById('msg');
-            
-            if(data.status === 'success') {
-                msg.innerHTML = "✅ Vote success! Redirecting...";
-                setTimeout(() => window.location.href = '/results', 2000);
-            } else {
-                msg.innerHTML = "❌ Error: " + data.message;
-                btn.disabled = false;
-                btn.innerText = "Cast Secure Vote";
+            const formData = new FormData();
+            formData.append('voter_name', document.getElementById('voter_name').value);
+            formData.append('candidate', document.getElementById('candidate').value);
+
+            try {
+                const response = await fetch('/vote', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const text = await response.text();
+                
+                if (response.ok) {
+                    messageDiv.textContent = "✅ " + text;
+                    messageDiv.className = "success";
+                } else {
+                    messageDiv.textContent = "❌ " + text;
+                    messageDiv.className = "error";
+                }
+            } catch (error) {
+                messageDiv.textContent = "❌ Error de conexión con el servidor.";
+                messageDiv.className = "error";
             }
-        }
+        });
     </script>
 </body>
 </html>
