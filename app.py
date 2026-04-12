@@ -9,7 +9,7 @@ import os
 app = Flask(__name__)
 
 # ==========================================
-# CONSTANTS & CSV SETUP
+# CONFIGURATION
 # ==========================================
 VOTES_CSV_FILENAME = 'votes.csv'
 USERS_CSV_FILENAME = 'users.csv'
@@ -18,9 +18,9 @@ VALID_TOKEN = "super-secret-token"
 voted_users = set()
 registered_users = {}
 
-# --- NEW: User Database Persistence ---
+# --- Persistance Helpers ---
 def load_users_from_csv():
-    """Loads registered users and their assigned Voter IDs into memory."""
+    """Loads registered users from CSV into memory on startup."""
     if os.path.exists(USERS_CSV_FILENAME):
         with open(USERS_CSV_FILENAME, mode='r') as file:
             reader = csv.DictReader(file)
@@ -31,7 +31,6 @@ def load_users_from_csv():
                 }
 
 def save_user_to_csv(username, password, voter_id):
-    """Saves a newly registered user to the CSV."""
     file_exists = os.path.exists(USERS_CSV_FILENAME)
     with open(USERS_CSV_FILENAME, mode='a', newline='') as file:
         fieldnames = ['username', 'password', 'voter_id']
@@ -39,17 +38,6 @@ def save_user_to_csv(username, password, voter_id):
         if not file_exists:
             writer.writeheader()
         writer.writerow({"username": username, "password": password, "voter_id": voter_id})
-
-# --- Existing Vote Database Persistence ---
-def load_votes_from_csv(nodes):
-    if os.path.exists(VOTES_CSV_FILENAME):
-        with open(VOTES_CSV_FILENAME, mode='r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                voted_users.add(row['voter_id'])
-                for node in nodes:
-                    if not node.is_malicious:
-                        node.paxos_backend.servers[0].ledger.append(row)
 
 def save_vote_to_csv(vote_data):
     file_exists = os.path.exists(VOTES_CSV_FILENAME)
@@ -60,18 +48,21 @@ def save_vote_to_csv(vote_data):
             writer.writeheader()
         writer.writerow(vote_data)
 
+# Auth Decorator
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
         if not auth_header or auth_header != f"Bearer {VALID_TOKEN}":
-            return jsonify({'status': 'error', 'message': 'Unauthorized. Invalid or missing session token.'}), 401
+            return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
 
 # ==========================================
-# 1. PAXOS LOGIC 
+# DISTRIBUTED LOGIC (Paxos & PBFT)
 # ==========================================
+# (Note: Kept the logic from your colleague intact to ensure stability)
+
 class InternalPaxosServer:
     def __init__(self, server_id):
         self.server_id = server_id
@@ -100,23 +91,13 @@ class PaxosCluster:
     def replicate(self, vote_data):
         self.proposal_counter += 1
         proposal_id = self.proposal_counter
-        
         promises = sum(1 for s in self.servers if s.prepare(proposal_id))
         majority = (len(self.servers) // 2) + 1
-        
         if promises >= majority:
             accepts = sum(1 for s in self.servers if s.accept(proposal_id, vote_data))
-            if accepts >= majority:
-                return True
+            return accepts >= majority
         return False
 
-    @property
-    def local_ledger(self):
-        return self.servers[0].ledger
-
-# ==========================================
-# 2. PBFT LOGIC
-# ==========================================
 class PBFTNode:
     def __init__(self, name):
         self.name = name
@@ -124,22 +105,15 @@ class PBFTNode:
         self.paxos_backend = PaxosCluster(name)
 
     def validate_vote(self, vote):
-        if self.is_malicious:
-            return False 
-        return True
+        return not self.is_malicious
 
 class PBFTNetwork:
     def __init__(self, nodes_list):
         self.nodes = nodes_list
 
     def run_consensus(self, vote):
-        approvals = 0
-        for node in self.nodes:
-            if node.validate_vote(vote):
-                approvals += 1
-                
+        approvals = sum(1 for n in self.nodes if n.validate_vote(vote))
         required_majority = (2 * len(self.nodes) // 3) + 1
-        
         if approvals >= required_majority:
             for node in self.nodes:
                 if not node.is_malicious:
@@ -148,163 +122,80 @@ class PBFTNetwork:
         return False, approvals, required_majority
 
 # Initialize network
-global_nodes = [
-    PBFTNode("Electoral_Commission"),
-    PBFTNode("Independent_Auditor"),
-    PBFTNode("NGO_Watchdog"),
-    PBFTNode("University_Node")
-]
+global_nodes = [PBFTNode("Electoral_Commission"), PBFTNode("Independent_Auditor"), 
+                PBFTNode("NGO_Watchdog"), PBFTNode("University_Node")]
 network = PBFTNetwork(global_nodes)
-
-# Load databases on startup
 load_users_from_csv()
-load_votes_from_csv(global_nodes)
 
 # ==========================================
-# 3. FLASK WEB ROUTES 
+# NEW ROUTES FOR VERSION PAU-RAMON
 # ==========================================
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# UPDATED: Dynamic Registration & Login
+@app.route('/results')
+def results_page():
+    return render_template('results.html')
+
+@app.route('/admin')
+def admin_page():
+    """Restricted page to manage node status and network hacks."""
+    return render_template('admin.html')
+
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    
-    if not username or not password:
-        return jsonify({"status": "error", "message": "Username and password required"}), 400
-
-    # 1. Check if user already exists
+    username, password = data.get('username'), data.get('password')
     if username in registered_users:
         if registered_users[username]['password'] == password:
-            return jsonify({
-                "status": "success", 
-                "token": VALID_TOKEN,
-                "voter_id": registered_users[username]['voter_id']
-            })
-        else:
-            return jsonify({"status": "error", "message": "Invalid password"}), 401
+            return jsonify({"status": "success", "token": VALID_TOKEN, "voter_id": registered_users[username]['voter_id']})
+        return jsonify({"status": "error", "message": "Invalid password"}), 401
     
-    # 2. If user doesn't exist, auto-register them and assign an unchangeable ID
-    else:
-        new_voter_id = f"usr-{str(uuid.uuid4())}"
-        registered_users[username] = {
-            "password": password,
-            "voter_id": new_voter_id
-        }
-        save_user_to_csv(username, password, new_voter_id)
-        
-        return jsonify({
-            "status": "success", 
-            "token": VALID_TOKEN,
-            "voter_id": new_voter_id
-        })
+    new_voter_id = f"usr-{str(uuid.uuid4())[:8]}"
+    registered_users[username] = {"password": password, "voter_id": new_voter_id}
+    save_user_to_csv(username, password, new_voter_id)
+    return jsonify({"status": "success", "token": VALID_TOKEN, "voter_id": new_voter_id})
 
 @app.route('/api/vote', methods=['POST'])
 @token_required
 def cast_vote():
     data = request.json
-    voter_id = data.get('voter_id')
-    candidate = data.get('candidate')
-
+    voter_id, candidate = data.get('voter_id'), data.get('candidate')
     if voter_id in voted_users:
-        return jsonify({"status": "error", "message": "Duplicate Vote: This Voter ID has already been used."}), 403
+        return jsonify({"status": "error", "message": "Already voted"}), 403
 
-    vote_id = str(uuid.uuid4())
-    timestamp = time.time()
-    record = f"{vote_id}{voter_id}{candidate}{timestamp}"
-    vote_hash = hashlib.sha256(record.encode()).hexdigest()
-    
-    vote_data = {
-        "hash": vote_hash,
-        "voter_id": voter_id,
-        "candidate": candidate,
-        "timestamp": timestamp
-    }
+    vote_data = {"hash": hashlib.sha256(str(time.time()).encode()).hexdigest()[:16],
+                 "voter_id": voter_id, "candidate": candidate, "timestamp": time.time()}
 
     success, approvals, required = network.run_consensus(vote_data)
-
     if success:
-        voted_users.add(voter_id) 
-        save_vote_to_csv(vote_data) 
-        return jsonify({"status": "success", "receipt": vote_hash, "approvals": approvals, "required": required, "total_nodes": len(global_nodes)})
-    else:
-        return jsonify({"status": "error", "message": "Consensus Failed - Too many malicious nodes!", "approvals": approvals, "required": required, "total_nodes": len(global_nodes)}), 400
+        voted_users.add(voter_id)
+        save_vote_to_csv(vote_data)
+        return jsonify({"status": "success", "receipt": vote_data['hash'], "approvals": approvals, "total_nodes": len(global_nodes)})
+    return jsonify({"status": "error", "message": "Consensus failed"}), 400
 
-@app.route('/api/status', methods=['GET'])
+@app.route('/api/results')
+def get_results():
+    counts = {"Pablo": 0, "Ramon": 0, "Charlie": 0}
+    if os.path.exists(VOTES_CSV_FILENAME):
+        with open(VOTES_CSV_FILENAME, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['candidate'] in counts: counts[row['candidate']] += 1
+    
+    return jsonify([{ "candidate": c, "votes": v, "percentage": min((v/10)*100, 100), "remaining": max(10-v, 0)} for c,v in counts.items()])
+
+@app.route('/api/status')
 def get_status():
-    node_status = [{"id": i, "name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.local_ledger)} for i, n in enumerate(global_nodes)]
-    return jsonify(node_status)
+    return jsonify([{"id": i, "name": n.name, "malicious": n.is_malicious, "ledger_count": len(n.paxos_backend.servers[0].ledger)} for i, n in enumerate(global_nodes)])
 
 @app.route('/api/toggle_hack', methods=['POST'])
 def toggle_hack():
-    data = request.json
-    node_index = data.get('node_index')
-    
-    if 0 <= node_index < len(global_nodes):
-        global_nodes[node_index].is_malicious = not global_nodes[node_index].is_malicious
-        return jsonify({"status": "success", "malicious": global_nodes[node_index].is_malicious})
-    return jsonify({"status": "error"}), 400
-
-@app.route('/api/add_node', methods=['POST'])
-def add_node():
-    new_id = len(global_nodes) + 1
-    new_node = PBFTNode(f"Observer_Node_{new_id}")
-    for _ in range(len(voted_users)): 
-        new_node.paxos_backend.servers[0].ledger.append({}) 
-    global_nodes.append(new_node)
-    return jsonify({"status": "success", "total_nodes": len(global_nodes)})
-
-import csv # Make sure this is at the very top of your app.py!
-import os
-
-@app.route('/results')
-def results_page():
-    return render_template('results.html')
-
-@app.route('/api/results', methods=['GET'])
-def get_results():
-    # The goal threshold
-    WINNING_THRESHOLD = 10 
-    
-    # Initialize our score board
-    vote_counts = {"Pablo": 0, "Ramon": 0, "Charlie": 0}
-    
-    # Read the CSV (if it exists)
-    if os.path.exists('votes.csv'):
-        with open('votes.csv', mode='r') as file:
-            reader = csv.reader(file)
-            for row in reader:
-                # Assuming your CSV format is: Hash, VoterID, Candidate, Timestamp
-                # So the candidate name is in the 3rd column (index 2)
-                if len(row) >= 3:
-                    candidate = row[2]
-                    if candidate in vote_counts:
-                        vote_counts[candidate] += 1
-                        
-    # Package the results with the math done for the frontend
-    results_data = []
-    for candidate, votes in vote_counts.items():
-        remaining = WINNING_THRESHOLD - votes
-        if remaining < 0:
-            remaining = 0 # Don't show negative numbers if they pass 10
-            
-        percentage = (votes / WINNING_THRESHOLD) * 100
-        if percentage > 100:
-            percentage = 100
-            
-        results_data.append({
-            "candidate": candidate,
-            "votes": votes,
-            "remaining": remaining,
-            "percentage": percentage
-        })
-        
-    return jsonify(results_data)
+    idx = request.json.get('node_index')
+    global_nodes[idx].is_malicious = not global_nodes[idx].is_malicious
+    return jsonify({"status": "success"})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=5000)
