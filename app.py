@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 
-# Configuración inicial de nodos
+# Initial node configuration
 nodes = [
     {"id": "Electoral_Commission", "status": "HONEST", "votes": 0},
     {"id": "Independent_Auditor", "status": "HONEST", "votes": 0},
@@ -14,16 +14,17 @@ nodes = [
 
 CSV_FILE = 'votes.csv'
 
-# Asegurar que el archivo de votos existe
+# Create an empty CSV file if it doesn't exist to prevent errors
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['voter_name', 'candidate'])
+        pass
 
 def get_consensus_threshold():
-    # Regla PBFT: Se necesita más de 2/3 de los nodos totales
+    # PBFT Rule: Needs more than 2/3 of honest votes
     n = len(nodes)
     return (2 * n // 3) + 1
+
+# --- HTML PAGE ROUTES ---
 
 @app.route('/')
 def index():
@@ -34,8 +35,10 @@ def admin():
     return render_template('admin.html')
 
 @app.route('/results')
-def results_page():
-    return render_template('result.html')
+def results():
+    return render_template('results.html')
+
+# --- API ROUTES ---
 
 @app.route('/api/status')
 def status():
@@ -69,54 +72,73 @@ def restore_node():
             node['status'] = 'HONEST'
     return jsonify({"success": True})
 
-@app.route('/vote', methods=['POST'])
-def vote():
-    candidate = request.form.get('candidate')
-    voter_name = request.form.get('voter_name')
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
     
+    # Generate ID based on the username to prevent duplicate users
+    if username:
+        voter_id = f"VOTER-{username.strip().upper()}"
+        return jsonify({"status": "success", "token": "secure_token_123", "voter_id": voter_id})
+    return jsonify({"status": "error", "message": "Username required"}), 400
+
+@app.route('/api/vote', methods=['POST'])
+def cast_vote():
+    data = request.json
+    candidate = data.get('candidate')
+    voter_id = data.get('voter_id')
+
+    # --- ANTI-DOUBLE VOTING CHECK ---
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                # Si el ID del votante ya existe en el archivo, bloqueamos el voto
+                if len(row) >= 1 and row[0] == voter_id:
+                    return jsonify({"status": "error", "message": "User has already voted. Double voting is strictly prohibited!"})
+    # --------------------------------
+
     honest_nodes = [n for n in nodes if n['status'] == 'HONEST']
     threshold = get_consensus_threshold()
-    
-    # Verificamos si hay suficientes nodos honestos para el consenso
+
     if len(honest_nodes) >= threshold:
-        # Registrar el voto en el CSV
+        # Register vote
         with open(CSV_FILE, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([voter_name, candidate])
+            writer.writerow([voter_id, candidate])
         
-        # Sincronizar los registros de los nodos que están funcionando bien
+        # Synchronize honest nodes
         for node in honest_nodes:
             node['votes'] += 1
             
-        return f"Voto registrado exitosamente. Consenso alcanzado ({len(honest_nodes)}/{len(nodes)} nodos)."
+        return jsonify({"status": "success", "message": "Vote registered successfully"})
     else:
-        # Error 403 si la red está comprometida
-        return f"ERROR DE CONSENSO: Solo {len(honest_nodes)} nodos honestos. Se requieren {threshold} para validar.", 403
+        return jsonify({"status": "error", "message": f"Consensus failed. Only {len(honest_nodes)} honest nodes available. {threshold} required."})
 
 @app.route('/api/results')
 def get_results():
-    vote_counts = {'Alice': 0, 'Bob': 0, 'Charlie': 0}
-    
+    counts = {"Pablo": 0, "Ramon": 0, "Charlie": 0}
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, 'r') as f:
-            reader = csv.DictReader(f)
+            reader = csv.reader(f)
             for row in reader:
-                candidate = row.get('candidate')
-                if candidate in vote_counts:
-                    vote_counts[candidate] += 1
-                    
-    data = []
-    for candidate, votes in vote_counts.items():
+                if len(row) == 2:
+                    cand = row[1]
+                    if cand in counts:
+                        counts[cand] += 1
+
+    stats = []
+    for cand, votes in counts.items():
         percentage = min((votes / 10) * 100, 100)
         remaining = max(10 - votes, 0)
-        data.append({
-            "candidate": candidate,
+        stats.append({
+            "candidate": cand,
             "votes": votes,
-            "remaining": remaining,
-            "percentage": percentage
+            "percentage": percentage,
+            "remaining": remaining
         })
-        
-    return jsonify(data)
+    return jsonify(stats)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
