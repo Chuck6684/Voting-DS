@@ -4,14 +4,16 @@
     <title>Voter Portal - Secure System</title>
     <style>
         body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
-        h2 { text-align: center; color: #1a73e8; margin-top: 0; }
-        .form-group { margin-bottom: 20px; }
+        .card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #1a73e8; margin-top: 0; }
+        .form-group { margin-bottom: 20px; text-align: left; }
         label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
         input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        .btn { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .btn { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; margin-bottom: 10px; }
         .btn:hover { background: #1557b0; }
-        #message { margin-top: 20px; text-align: center; font-weight: bold; }
+        .btn-results { background: #28a745; text-decoration: none; display: inline-block; box-sizing: border-box; }
+        .btn-results:hover { background: #218838; }
+        #message { margin-top: 15px; font-weight: bold; }
         .success { color: green; }
         .error { color: red; }
     </style>
@@ -37,6 +39,8 @@
             <button type="submit" class="btn">Emitir Voto Seguro</button>
         </form>
         <div id="message"></div>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+        <a href="/results" class="btn btn-results">📊 Ver Resultados en Vivo</a>
     </div>
 
     <script>
