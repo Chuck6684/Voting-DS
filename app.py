@@ -4,18 +4,25 @@ import os
 
 app = Flask(__name__)
 
-# Configuración inicial de nodos
-nodes = [
-    {"id": "Electoral_Commission", "status": "HONEST", "votes": 0},
-    {"id": "Independent_Auditor", "status": "HONEST", "votes": 0},
-    {"id": "NGO_Watchdog", "status": "HONEST", "votes": 0},
-    {"id": "University_Node", "status": "HONEST", "votes": 0}
-]
+# Configuración inicial de nodos (Variable global para que persista en la sesión)
+if 'nodes' not in globals():
+    nodes = [
+        {"id": "Electoral_Commission", "status": "HONEST", "votes": 0},
+        {"id": "Independent_Auditor", "status": "HONEST", "votes": 0},
+        {"id": "NGO_Watchdog", "status": "HONEST", "votes": 0},
+        {"id": "University_Node", "status": "HONEST", "votes": 0}
+    ]
 
 CSV_FILE = 'votes.csv'
 
+# Asegurar que el archivo de votos existe
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['voter_name', 'candidate'])
+
 def get_consensus_threshold():
-    # Regla PBFT: Se necesita más de 2/3 de votos honestos
+    # Regla PBFT: Se necesita más de 2/3 de los nodos totales
     n = len(nodes)
     return (2 * n // 3) + 1
 
@@ -67,19 +74,22 @@ def vote():
     honest_nodes = [n for n in nodes if n['status'] == 'HONEST']
     threshold = get_consensus_threshold()
     
+    # Verificamos si hay suficientes nodos honestos para el consenso
     if len(honest_nodes) >= threshold:
-        # Registrar voto
+        # Registrar el voto en el CSV
         with open(CSV_FILE, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([voter_name, candidate])
         
-        # Sincronizar nodos honestos
+        # Sincronizar los registros de los nodos que están funcionando bien
         for node in honest_nodes:
             node['votes'] += 1
             
         return f"Voto registrado exitosamente. Consenso alcanzado ({len(honest_nodes)}/{len(nodes)} nodos)."
     else:
-        return f"ERROR DE CONSENSO: Solo {len(honest_nodes)} nodos honestos. Se requieren {threshold} para validar.", 403
+        # Aquí es donde lanzamos el error 403 si la red está comprometida
+        return f"ERROR DE CONSENSO: Solo {len(honest_nodes)} nodos honestos. Se requieren {threshold} para validar la seguridad de la red.", 403
 
 if __name__ == '__main__':
+    # Usamos debug=True para que se reinicie solo si haces cambios
     app.run(debug=True, port=5000)
