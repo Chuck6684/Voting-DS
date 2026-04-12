@@ -4,14 +4,13 @@ import os
 
 app = Flask(__name__)
 
-# Configuración inicial de nodos (Variable global para que persista en la sesión)
-if 'nodes' not in globals():
-    nodes = [
-        {"id": "Electoral_Commission", "status": "HONEST", "votes": 0},
-        {"id": "Independent_Auditor", "status": "HONEST", "votes": 0},
-        {"id": "NGO_Watchdog", "status": "HONEST", "votes": 0},
-        {"id": "University_Node", "status": "HONEST", "votes": 0}
-    ]
+# Configuración inicial de nodos
+nodes = [
+    {"id": "Electoral_Commission", "status": "HONEST", "votes": 0},
+    {"id": "Independent_Auditor", "status": "HONEST", "votes": 0},
+    {"id": "NGO_Watchdog", "status": "HONEST", "votes": 0},
+    {"id": "University_Node", "status": "HONEST", "votes": 0}
+]
 
 CSV_FILE = 'votes.csv'
 
@@ -33,6 +32,10 @@ def index():
 @app.route('/admin')
 def admin():
     return render_template('admin.html')
+
+@app.route('/results')
+def results_page():
+    return render_template('result.html')
 
 @app.route('/api/status')
 def status():
@@ -87,9 +90,33 @@ def vote():
             
         return f"Voto registrado exitosamente. Consenso alcanzado ({len(honest_nodes)}/{len(nodes)} nodos)."
     else:
-        # Aquí es donde lanzamos el error 403 si la red está comprometida
-        return f"ERROR DE CONSENSO: Solo {len(honest_nodes)} nodos honestos. Se requieren {threshold} para validar la seguridad de la red.", 403
+        # Error 403 si la red está comprometida
+        return f"ERROR DE CONSENSO: Solo {len(honest_nodes)} nodos honestos. Se requieren {threshold} para validar.", 403
+
+@app.route('/api/results')
+def get_results():
+    vote_counts = {'Alice': 0, 'Bob': 0, 'Charlie': 0}
+    
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                candidate = row.get('candidate')
+                if candidate in vote_counts:
+                    vote_counts[candidate] += 1
+                    
+    data = []
+    for candidate, votes in vote_counts.items():
+        percentage = min((votes / 10) * 100, 100)
+        remaining = max(10 - votes, 0)
+        data.append({
+            "candidate": candidate,
+            "votes": votes,
+            "remaining": remaining,
+            "percentage": percentage
+        })
+        
+    return jsonify(data)
 
 if __name__ == '__main__':
-    # Usamos debug=True para que se reinicie solo si haces cambios
     app.run(debug=True, port=5000)
