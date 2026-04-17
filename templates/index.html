@@ -1,200 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Distributed Voting System</title>
+    <title>Voter Portal - Secure System</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f9; padding: 20px; }
-        .container { display: flex; gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; }
-        button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .mini-hack-btn { background: #dc3545; padding: 5px 10px; font-size: 0.8em; margin-left: 10px; }
-        .mini-hack-btn:hover { background: #a71d2a; }
-        input, select { padding: 10px; width: 100%; box-sizing: border-box; }
-        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
-        .node-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #ddd; }
-        #status-box { background: #eee; padding: 15px; border-radius: 4px; margin-top: 15px; }
-        
-        .hidden { display: none !important; }
-        input[readonly] { background-color: #e9ecef; color: #495057; cursor: not-allowed; border: 1px solid #ced4da; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding-top: 50px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 400px; }
+        .hidden { display: none; }
+        input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; }
+        button { background: #0062ff; color: white; font-weight: bold; border: none; cursor: pointer; }
+        button:disabled { background: #ccc; }
     </style>
 </head>
 <body>
-
-    <h1>🗳️ Secure Voting Portal (PBFT+Paxos Hybrid Protocol)</h1>
-    
-    <div id="login-section" class="card" style="max-width: 400px; margin-bottom: 20px;">
-        <h2>System Login</h2>
-        <p style="color: #555; font-size: 0.9em;">
-            Log in with an existing account, or enter a new username/password to automatically register and receive your locked Voter ID.
-        </p>
-        <div class="input-group">
+    <div class="card">
+        <h2 id="title">🗳️ Secure Voting Portal</h2>
+        
+        <div id="login-section">
             <input type="text" id="username" placeholder="Username">
-        </div>
-        <div class="input-group" style="margin-bottom: 15px;">
             <input type="password" id="password" placeholder="Password">
+            <button onclick="login()">Enter System</button>
         </div>
-        <button onclick="login()" style="width: 100%;">Authenticate / Register</button>
-        <div id="login-error" style="color: red; margin-top: 10px; font-size: 0.9em;"></div>
-    </div>
 
-    <div id="main-app" class="container hidden">
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2 style="margin: 0;">Voter Interface</h2>
-                <a href="/results">
-                    <button type="button" style="background: #28a745;">📈 Live Results</button>
-                </a>
-            </div>
-            
-            <div class="input-group">
-                <input type="text" id="voter_id" placeholder="Authenticating ID..." readonly>
-            </div>
-            
-            <select id="candidate" style="margin-bottom: 15px;">
+        <div id="vote-section" class="hidden">
+            <p>Voter ID: <strong id="v-id">---</strong></p>
+            <select id="candidate">
                 <option value="Pablo">Pablo</option>
                 <option value="Ramon">Ramon</option>
                 <option value="Charlie">Charlie</option>
             </select>
-            <br>
-            <button id="submit-btn" onclick="castVote()">Submit Secure Vote</button>
-            <div id="receipt" style="margin-top: 15px; font-size: 1.1em;"></div>
-        </div>
-
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 style="margin: 0;">Auditor Dashboard</h2>
-                <button onclick="addNode()" style="background: #17a2b8;">➕ Add Network Node</button>
-            </div>
-            
-            <div id="status-box">Loading network data...</div>
+            <button id="vote-btn" onclick="castVote()">Cast Secure Vote</button>
+            <div id="msg" style="margin-top: 15px;"></div>
         </div>
     </div>
 
     <script>
         async function login() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const errorDiv = document.getElementById('login-error');
-
-            errorDiv.innerText = '';
-
-            try {
-                const res = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-
-                const data = await res.json();
-
-                if (data.status === 'success') {
-                    sessionStorage.setItem('authToken', data.token);
-                    sessionStorage.setItem('voterId', data.voter_id); 
-                    
-                    document.getElementById('voter_id').value = data.voter_id;
-
-                    document.getElementById('login-section').classList.add('hidden');
-                    document.getElementById('main-app').classList.remove('hidden');
-                    
-                    fetchStatus();
-                    setInterval(fetchStatus, 2000);
-                } else {
-                    errorDiv.innerText = data.message;
-                }
-            } catch (error) {
-                errorDiv.innerText = "Network error connecting to login server.";
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: document.getElementById('username').value, password:  document.getElementById('password').value})
+            });
+            const data = await res.json();
+            if(data.status === 'success') {
+                sessionStorage.setItem('token', data.token);
+                sessionStorage.setItem('vId', data.voter_id);
+                document.getElementById('v-id').innerText = data.voter_id;
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('vote-section').classList.remove('hidden');
             }
         }
 
         async function castVote() {
-            const token = sessionStorage.getItem('authToken');
-            const voter_id = sessionStorage.getItem('voterId'); 
-            const candidateSelect = document.getElementById('candidate');
-            const submitBtn = document.getElementById('submit-btn');
-            const receiptDiv = document.getElementById('receipt');
-
-            const candidate = candidateSelect.value;
-
-            if (!voter_id) {
-                receiptDiv.innerHTML = '⚠️ Authentication error. Missing Voter ID.';
-                receiptDiv.style.color = 'orange';
-                return;
-            }
-
-            submitBtn.disabled = true;
-            submitBtn.innerText = '⚙️ Running PBFT Consensus...';
-            receiptDiv.innerHTML = '';
-
-            try {
-                const res = await fetch('/api/vote', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` 
-                    },
-                    body: JSON.stringify({ voter_id, candidate })
-                });
-              
-                const data = await res.json();
-                
-                if(data.status === 'success') {
-                    receiptDiv.innerHTML = 
-                        `✅ <strong>Vote Committed!</strong><br>
-                        <span style="color: #555; font-size: 0.9em;">PBFT Approvals: ${data.approvals}/${data.total_nodes} nodes</span><br>
-                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 4px; border-radius: 3px;">Hash: ${data.receipt}</span>`;
-                    receiptDiv.style.color = 'green';
-                } else {
-                    receiptDiv.innerHTML = `❌ <strong>Error:</strong> ${data.message}`;
-                    receiptDiv.style.color = 'red';
-                }
-            } catch (error) {
-                receiptDiv.innerHTML = `❌ Network Error. Could not reach the API.`;
-                receiptDiv.style.color = 'red';
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerText = 'Submit Secure Vote';
-                fetchStatus(); 
-            }
-        }
-
-        async function addNode() {
-            await fetch('/api/add_node', { method: 'POST' });
-            fetchStatus();
-        }
-
-        async function toggleNodeHack(nodeIndex) {
-            await fetch('/api/toggle_hack', { 
+            const btn = document.getElementById('vote-btn');
+            btn.disabled = true;
+            btn.innerText = "Running PBFT Consensus...";
+            
+            const res = await fetch('/api/vote', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ node_index: nodeIndex })
+                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionStorage.getItem('token')},
+                body: JSON.stringify({voter_id: sessionStorage.getItem('vId'), candidate: document.getElementById('candidate').value})
             });
-            fetchStatus();
-        }
-
-        async function fetchStatus() {
-            const res = await fetch('/api/status');
             const data = await res.json();
-            const statusBox = document.getElementById('status-box');
-            statusBox.innerHTML = ''; 
-
-            data.forEach(node => {
-                const isMalicious = node.malicious ? '🔴 MALICIOUS' : '🟢 HONEST';
-                const nodeColor = node.malicious ? '#dc3545' : '#28a745';
-                const btnText = node.malicious ? 'Restore Node' : 'Hack Node';
-                const btnStyle = node.malicious ? 'background: #28a745;' : '';
-
-                statusBox.innerHTML += `
-                    <div class="node-row">
-                        <div>
-                            <strong>${node.name}</strong><br>
-                            <span style="color: ${nodeColor}; font-weight: bold; font-size: 0.9em;">${isMalicious}</span> 
-                            <span style="font-size: 0.9em; color: #555;">| Ledger: ${node.ledger_count} votes</span>
-                        </div>
-                        <button class="mini-hack-btn" style="${btnStyle}" onclick="toggleNodeHack(${node.id})">${btnText}</button>
-                    </div>
-                `;
-            });
+            const msg = document.getElementById('msg');
+            
+            if(data.status === 'success') {
+                msg.style.color = "green";
+                msg.innerHTML = "✅ Vote success! Redirecting...";
+                setTimeout(() => window.location.href = '/results', 2000);
+            } else {
+                msg.style.color = "red";
+                msg.innerHTML = "❌ Error: " + data.message;
+                btn.disabled = false;
+                btn.innerText = "Cast Secure Vote";
+            }
         }
     </script>
 </body>

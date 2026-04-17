@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Network Auditor - Admin</title>
+    <style>
+        body { font-family: monospace; background: #121212; color: #00ff00; padding: 20px; }
+        .controls { margin-bottom: 20px; padding: 15px; border: 1px dashed #00ff00; }
+        .node-card { border: 1px solid #00ff00; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .btn { padding: 10px; cursor: pointer; border: none; font-weight: bold; font-family: monospace; }
+        .btn-add { background: #00ff00; color: black; margin-right: 10px; }
+        .btn-remove { background: #ffaa00; color: black; }
+        .btn-hack { background: #ff0000; color: white; }
+        .btn-restore { background: #00ff00; color: black; }
+        .malicious { border-color: #ff0000; color: #ff0000; }
+    </style>
+</head>
+<body>
+    <h1>🛠 Distributed Network Auditor</h1>
+    
+    <div class="controls">
+        <h3>Network Management:</h3>
+        <button class="btn btn-add" onclick="manageNode('add')">+ ADD NODE</button>
+        <button class="btn btn-remove" onclick="manageNode('remove')">- REMOVE NODE</button>
+    </div>
+
+    <div id="node-container"></div>
+
+    <script>
+        async function refresh() {
+            const res = await fetch('/api/status');
+            const nodes = await res.json();
+            const container = document.getElementById('node-container');
+            
+            container.innerHTML = nodes.map(n => `
+                <div class="node-card ${n.status === 'MALICIOUS' ? 'malicious' : ''}">
+                    <div>
+                        [NODE: ${n.id}]<br>
+                        STATUS: ${n.status}${n.status === 'MALICIOUS' ? ' (Hacked)' : ''}<br>
+                        LEDGER: ${n.votes} votes synchronized
+                    </div>
+                    <button class="btn ${n.status === 'HONEST' ? 'btn-hack' : 'btn-restore'}" 
+                            onclick="${n.status === 'HONEST' ? 'hack' : 'restore'}('${n.id}')">
+                        ${n.status === 'HONEST' ? 'HACK NODE' : 'RESTORE'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function manageNode(action) {
+            await fetch(`/api/${action}_node`, {method: 'POST'});
+            refresh();
+        }
+
+        async function hack(id) {
+            await fetch('/api/hack', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id})
+            });
+            refresh();
+        }
+
+        async function restore(id) {
+            await fetch('/api/restore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id})
+            });
+            refresh();
+        }
+
+        setInterval(refresh, 2000);
+        refresh();
+    </script>
+</body>
+</html>
