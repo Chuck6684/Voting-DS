@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request, jsonify
 import csv
 import os
+import uuid
+import hashlib
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -13,14 +16,27 @@ nodes = [
 ]
 
 CSV_FILE = 'votes.csv'
+USERS_CSV = 'users.csv'
 
-# Create an empty CSV file if it doesn't exist to prevent errors
+# Create an empty votes CSV file if it doesn't exist to prevent errors
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
         pass
 
-def get_consensus_threshold():
-    # PBFT Rule: Needs more than 2/3 of honest votes
+# Create an empty users CSV file with headers if it doesn't exist
+if not os.path.exists(USERS_CSV):
+    with open(USERS_CSV, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['username', 'password', 'voter_id'])
+
+# --- HYBRID CONSENSUS THRESHOLDS ---
+
+def get_paxos_threshold():
+    # Paxos Rule: Needs a simple majority (n/2 + 1) for liveness/quorum
+    return (len(nodes) // 2) + 1
+
+def get_pbft_threshold():
+    # PBFT Rule: Needs > 2/3 of honest nodes to tolerate Byzantine faults
     n = len(nodes)
     return (2 * n // 3) + 1
 
@@ -76,12 +92,54 @@ def restore_node():
 def login():
     data = request.json
     username = data.get('username')
+    password = data.get('password')
     
-    # Generate ID based on the username to prevent duplicate users
-    if username:
-        voter_id = f"VOTER-{username.strip().upper()}"
-        return jsonify({"status": "success", "token": "secure_token_123", "voter_id": voter_id})
-    return jsonify({"status": "error", "message": "Username required"}), 400
+    if not username or not password:
+        return jsonify({"status": "error", "message": "Username and password required"}), 400
+
+    username = username.strip().lower()
+
+    # 1. CHECK IF USER ALREADY EXISTS
+    if os.path.exists(USERS_CSV):
+        with open(USERS_CSV, 'r') as f:
+            reader = csv.reader(f)
+            next(reader, None) # Skip headers
+            
+            for row in reader:
+                if len(row) >= 3:
+                    saved_user = row[0].strip().lower()
+                    saved_pass = row[1]
+                    saved_voter_id = row[2]
+                    
+                    if saved_user == username:
+                        if saved_pass == password:
+                            
+                            # --- CHECK IF THEY ALREADY VOTED ---
+                            if os.path.exists(CSV_FILE):
+                                with open(CSV_FILE, 'r') as vf:
+                                    v_reader = csv.reader(vf)
+                                    for v_row in v_reader:
+                                        if len(v_row) >= 1 and v_row[0] == saved_voter_id:
+                                            return jsonify({"status": "error", "message": "You have already cast your vote!"}), 403
+                            # ----------------------------------------
+                            
+                            # If they haven't voted, let them in
+                            return jsonify({
+                                "status": "success", 
+                                "token": "secure_token_123", 
+                                "voter_id": saved_voter_id
+                            })
+                        else:
+                            return jsonify({"status": "error", "message": "Incorrect password"}), 401
+
+    # 2. IF USER DOES NOT EXIST, REGISTER THEM AS NEW
+    voter_id = f"usr-{uuid.uuid4()}"
+    
+    with open(USERS_CSV, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([username, password, voter_id])
+        
+    return jsonify({"status": "success", "token": "secure_token_123", "voter_id": voter_id})
 
 @app.route('/api/vote', methods=['POST'])
 def cast_vote():
@@ -89,32 +147,38 @@ def cast_vote():
     candidate = data.get('candidate')
     voter_id = data.get('voter_id')
 
-    # --- ANTI-DOUBLE VOTING CHECK ---
-    if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, 'r') as f:
-            reader = csv.reader(f)
-            for row in reader:
-                # Si el ID del votante ya existe en el archivo, bloqueamos el voto
-                if len(row) >= 1 and row[0] == voter_id:
-                    return jsonify({"status": "error", "message": "User has already voted. Double voting is strictly prohibited!"})
-    # --------------------------------
+    # --- HYBRID CONSENSUS CHECK ---
+    paxos_threshold = get_paxos_threshold()
+    pbft_threshold = get_pbft_threshold()
 
+    # PHASE 1: Paxos (Check Network Liveness / Simple Majority)
+    # Simulating total active nodes communicating in the network
+    total_active_nodes = len(nodes) 
+    if total_active_nodes < paxos_threshold:
+        return jsonify({"status": "error", "message": f"Paxos Prepare Phase Failed: Network partition. Only {total_active_nodes} nodes available. Quorum requires {paxos_threshold}."})
+
+    # PHASE 2: PBFT (Check Integrity / Byzantine Supermajority)
     honest_nodes = [n for n in nodes if n['status'] == 'HONEST']
-    threshold = get_consensus_threshold()
 
-    if len(honest_nodes) >= threshold:
+    if len(honest_nodes) >= pbft_threshold:
+        # Consensus Reached: Both Paxos quorum and PBFT integrity validated
+        timestamp = datetime.now().isoformat()
+        vote_data = f"{voter_id}-{candidate}-{timestamp}"
+        vote_hash = hashlib.sha256(vote_data.encode()).hexdigest()
+
         # Register vote
         with open(CSV_FILE, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([voter_id, candidate])
+            writer.writerow([vote_hash, voter_id, candidate, timestamp])
         
         # Synchronize honest nodes
         for node in honest_nodes:
             node['votes'] += 1
             
-        return jsonify({"status": "success", "message": "Vote registered successfully"})
+        return jsonify({"status": "success", "message": "Hybrid Consensus Reached: Vote registered securely."})
     else:
-        return jsonify({"status": "error", "message": f"Consensus failed. Only {len(honest_nodes)} honest nodes available. {threshold} required."})
+        # Fails Phase 2: Too many malicious nodes
+        return jsonify({"status": "error", "message": f"PBFT Commit Phase Failed. {pbft_threshold} honest nodes required to prevent tampering, but only {len(honest_nodes)} are honest."})
 
 @app.route('/api/results')
 def get_results():
@@ -123,8 +187,8 @@ def get_results():
         with open(CSV_FILE, 'r') as f:
             reader = csv.reader(f)
             for row in reader:
-                if len(row) == 2:
-                    cand = row[1]
+                if len(row) >= 3:
+                    cand = row[2] 
                     if cand in counts:
                         counts[cand] += 1
 

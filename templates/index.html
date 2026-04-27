@@ -19,6 +19,7 @@
             <input type="text" id="username" placeholder="Username">
             <input type="password" id="password" placeholder="Password">
             <button onclick="login()">Enter System</button>
+            <div id="login-msg" style="margin-top: 15px; text-align: center; font-weight: bold;"></div>
         </div>
 
         <div id="vote-section" class="hidden">
@@ -29,24 +30,36 @@
                 <option value="Charlie">Charlie</option>
             </select>
             <button id="vote-btn" onclick="castVote()">Cast Secure Vote</button>
-            <div id="msg" style="margin-top: 15px;"></div>
+            <div id="msg" style="margin-top: 15px; text-align: center; font-weight: bold;"></div>
         </div>
     </div>
 
     <script>
         async function login() {
+            // Clear any previous error messages when they try again
+            const loginMsg = document.getElementById('login-msg');
+            loginMsg.innerHTML = ""; 
+
             const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: document.getElementById('username').value, password:  document.getElementById('password').value})
+                body: JSON.stringify({
+                    username: document.getElementById('username').value, 
+                    password: document.getElementById('password').value
+                })
             });
             const data = await res.json();
+            
             if(data.status === 'success') {
                 sessionStorage.setItem('token', data.token);
                 sessionStorage.setItem('vId', data.voter_id);
                 document.getElementById('v-id').innerText = data.voter_id;
                 document.getElementById('login-section').classList.add('hidden');
                 document.getElementById('vote-section').classList.remove('hidden');
+            } else {
+                // NEW: Show the error message if the backend rejects the login
+                loginMsg.style.color = "red";
+                loginMsg.innerHTML = "❌ " + data.message;
             }
         }
 
