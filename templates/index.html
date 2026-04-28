@@ -8,7 +8,8 @@
         .hidden { display: none; }
         input, select, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; }
         button { background: #0062ff; color: white; font-weight: bold; border: none; cursor: pointer; }
-        button:disabled { background: #ccc; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #msg { margin-top: 15px; text-align: center; font-weight: bold; font-size: 0.9em; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -19,61 +20,94 @@
             <input type="text" id="username" placeholder="Username">
             <input type="password" id="password" placeholder="Password">
             <button onclick="login()">Enter System</button>
+            <div id="login-msg" style="margin-top: 15px; text-align: center; font-weight: bold;"></div>
         </div>
 
         <div id="vote-section" class="hidden">
             <p>Voter ID: <strong id="v-id">---</strong></p>
+            <label for="candidate">Select Candidate:</label>
             <select id="candidate">
                 <option value="Pablo">Pablo</option>
                 <option value="Ramon">Ramon</option>
                 <option value="Charlie">Charlie</option>
             </select>
             <button id="vote-btn" onclick="castVote()">Cast Secure Vote</button>
-            <div id="msg" style="margin-top: 15px;"></div>
+            <div id="msg"></div>
         </div>
     </div>
 
     <script>
         async function login() {
+            const loginMsg = document.getElementById('login-msg');
+            loginMsg.innerHTML = "Authenticating..."; 
+
             const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: document.getElementById('username').value, password:  document.getElementById('password').value})
+                body: JSON.stringify({
+                    username: document.getElementById('username').value, 
+                    password: document.getElementById('password').value
+                })
             });
             const data = await res.json();
+            
             if(data.status === 'success') {
                 sessionStorage.setItem('token', data.token);
                 sessionStorage.setItem('vId', data.voter_id);
                 document.getElementById('v-id').innerText = data.voter_id;
                 document.getElementById('login-section').classList.add('hidden');
                 document.getElementById('vote-section').classList.remove('hidden');
+            } else {
+                loginMsg.style.color = "red";
+                loginMsg.innerHTML = "❌ " + data.message;
             }
         }
 
         async function castVote() {
             const btn = document.getElementById('vote-btn');
-            btn.disabled = true;
-            btn.innerText = "Running PBFT Consensus...";
-            
-            const res = await fetch('/api/vote', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionStorage.getItem('token')},
-                body: JSON.stringify({voter_id: sessionStorage.getItem('vId'), candidate: document.getElementById('candidate').value})
-            });
-            const data = await res.json();
             const msg = document.getElementById('msg');
             
-            if(data.status === 'success') {
-                msg.style.color = "green";
-                msg.innerHTML = "✅ Vote success! Redirecting...";
-                setTimeout(() => window.location.href = '/results', 2000);
-            } else {
+            // UI Feedback for the Consensus Process
+            btn.disabled = true;
+            btn.innerText = "Running Hybrid Consensus...";
+            msg.style.color = "#555";
+            msg.innerHTML = "⏳ Phase 1: Checking Paxos Quorum...";
+            
+            try {
+                const res = await fetch('/api/vote', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json', 
+                        'Authorization': 'Bearer ' + sessionStorage.getItem('token')
+                    },
+                    body: JSON.stringify({
+                        voter_id: sessionStorage.getItem('vId'), 
+                        candidate: document.getElementById('candidate').value
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if(data.status === 'success') {
+                    msg.style.color = "green";
+                    msg.innerHTML = "✅ " + data.message;
+                    setTimeout(() => window.location.href = '/results', 2000);
+                } else {
+                    // This catches the 'Paxos Prepare Phase Failed' or 'PBFT Commit Failed'
+                    msg.style.color = "red";
+                    msg.innerHTML = "❌ Consensus Failure:<br>" + data.message;
+                    btn.disabled = false;
+                    btn.innerText = "Retry Secure Vote";
+                }
+            } catch (err) {
                 msg.style.color = "red";
-                msg.innerHTML = "❌ Error: " + data.message;
+                msg.innerHTML = "❌ Network Error: Could not connect to nodes.";
                 btn.disabled = false;
-                btn.innerText = "Cast Secure Vote";
+                btn.innerText = "Try Again";
             }
         }
     </script>
+</body>
+</html>
 </body>
 </html>
