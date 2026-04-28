@@ -5,13 +5,15 @@
     <style>
         body { font-family: monospace; background: #121212; color: #00ff00; padding: 20px; }
         .controls { margin-bottom: 20px; padding: 15px; border: 1px dashed #00ff00; }
-        .node-card { border: 1px solid #00ff00; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .node-card { border: 1px solid #00ff00; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; transition: 0.3s; }
+        .primary-node { border-left: 5px solid yellow; background: #1a1a00; }
         .btn { padding: 10px; cursor: pointer; border: none; font-weight: bold; font-family: monospace; }
         .btn-add { background: #00ff00; color: black; margin-right: 10px; }
         .btn-remove { background: #ffaa00; color: black; }
         .btn-hack { background: #ff0000; color: white; }
         .btn-restore { background: #00ff00; color: black; }
-        .malicious { border-color: #ff0000; color: #ff0000; }
+        .malicious { border-color: #ff0000; color: #ff0000; background: #200000; }
+        .tag { font-size: 0.8em; background: yellow; color: black; padding: 2px 5px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -19,8 +21,8 @@
     
     <div class="controls">
         <h3>Network Management:</h3>
-        <button class="btn btn-add" onclick="manageNode('add')">+ ADD NODE</button>
-        <button class="btn btn-remove" onclick="manageNode('remove')">- REMOVE NODE</button>
+        <button class="btn btn-add" onclick="manageNode('add')">+ REINSTATE/ADD NODE</button>
+        <button class="btn btn-remove" onclick="manageNode('remove')">- REMOVE INITIAL NODE</button>
     </div>
 
     <div id="node-container"></div>
@@ -31,9 +33,10 @@
             const nodes = await res.json();
             const container = document.getElementById('node-container');
             
-            container.innerHTML = nodes.map(n => `
-                <div class="node-card ${n.status === 'MALICIOUS' ? 'malicious' : ''}">
+            container.innerHTML = nodes.map((n, index) => `
+                <div class="node-card ${n.status === 'MALICIOUS' ? 'malicious' : ''} ${index === 0 ? 'primary-node' : ''}">
                     <div>
+                        ${index === 0 ? '<span class="tag">PRIMARY / OLDEST</span><br>' : ''}
                         [NODE: ${n.id}]<br>
                         STATUS: ${n.status}${n.status === 'MALICIOUS' ? ' (Hacked)' : ''}<br>
                         LEDGER: ${n.votes} votes synchronized
